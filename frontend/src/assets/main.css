@@ -1,0 +1,271 @@
+/* 잇닥 (ITdoc) 공통 스타일 — 모바일 우선 */
+:root {
+  --primary: #2f6bff;
+  --primary-dark: #1f4fd6;
+  --primary-light: #eaf0ff;
+  --danger: #e8404a;
+  --danger-light: #fdeceb;
+  --success: #18a35a;
+  --success-light: #e6f6ee;
+  --text: #1c2333;
+  --text-sub: #6b7385;
+  --border: #e6e9f0;
+  --bg: #f5f7fa;
+  --card: #ffffff;
+  --radius: 16px;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  background: #e9edf3;
+  color: var(--text);
+  font-family: 'Pretendard', 'Apple SD Gothic Neo', 'Malgun Gothic', sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+#app {
+  min-height: 100vh;
+}
+
+/* 셸: 모바일=프레임만, 데스크톱=브랜드 패널 + 프레임 */
+.app-shell {
+  display: flex;
+  justify-content: center;
+  align-items: stretch;
+  min-height: 100vh;
+}
+
+/* 모바일 앱 프레임 */
+.app-frame {
+  width: 100%;
+  max-width: 440px;
+  min-height: 100vh;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 24px rgba(28, 35, 51, 0.08);
+  transition: max-width 0.2s;
+}
+
+/* 데스크톱 브랜드 패널 — 모바일에서는 숨김 */
+.brand-panel {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .app-shell {
+    gap: 56px;
+    padding: 0 32px;
+  }
+  .brand-panel {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-width: 340px;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+  }
+  .brand-logo {
+    width: 64px;
+    height: 64px;
+  }
+  .brand-title {
+    margin-top: 18px;
+    font-size: 34px;
+    font-weight: 800;
+  }
+  .brand-title span {
+    font-size: 18px;
+    color: var(--text-sub);
+    font-weight: 600;
+  }
+  .brand-tagline {
+    margin-top: 14px;
+    font-size: 19px;
+    line-height: 1.55;
+    color: var(--text);
+    font-weight: 600;
+  }
+  .brand-features {
+    margin-top: 22px;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 9px;
+    font-size: 14px;
+    color: var(--text-sub);
+  }
+  .brand-foot {
+    margin-top: 26px;
+    font-size: 12px;
+    color: #9aa3b5;
+  }
+  /* 분할 뷰 라우트(병원 리스트)에서는 프레임을 넓힘 */
+  .app-frame.wide {
+    max-width: 1080px;
+  }
+}
+
+.page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 20px;
+  padding-bottom: 32px;
+}
+
+/* 상단 헤더 */
+.page-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.page-header .back-btn {
+  border: none;
+  background: none;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text);
+  min-width: 44px;
+  min-height: 44px;
+}
+
+.page-header h1 {
+  font-size: 17px;
+  font-weight: 700;
+  flex: 1;
+  text-align: center;
+  margin-right: 44px; /* back 버튼 폭만큼 보정 */
+}
+
+/* 카드 */
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+
+/* 버튼 */
+.btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 52px;
+  border: none;
+  border-radius: 14px;
+  font-size: 16px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s;
+  text-decoration: none;
+}
+
+.btn-primary {
+  background: var(--primary);
+  color: #fff;
+}
+.btn-primary:hover {
+  background: var(--primary-dark);
+}
+.btn-primary:disabled {
+  background: #b9c6e8;
+  cursor: not-allowed;
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+.btn-outline {
+  background: var(--card);
+  color: var(--primary);
+  border: 1.5px solid var(--primary);
+}
+
+.btn-outline-danger {
+  background: var(--card);
+  color: var(--danger);
+  border: 1.5px solid var(--danger);
+}
+
+/* 태그/뱃지 */
+.tag {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.tag-blue {
+  background: var(--primary-light);
+  color: var(--primary);
+}
+.tag-green {
+  background: var(--success-light);
+  color: var(--success);
+}
+.tag-gray {
+  background: #eef0f4;
+  color: var(--text-sub);
+}
+.tag-red {
+  background: var(--danger-light);
+  color: var(--danger);
+}
+
+/* 면책 고지 */
+.disclaimer {
+  margin-top: auto;
+  padding: 14px 4px 0;
+  font-size: 12px;
+  color: var(--text-sub);
+  text-align: center;
+  line-height: 1.5;
+}
+
+/* 로딩 스피너 */
+.spinner {
+  width: 36px;
+  height: 36px;
+  border: 4px solid var(--primary-light);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.section-title {
+  font-size: 20px;
+  font-weight: 800;
+  line-height: 1.4;
+}
+
+.sub-text {
+  font-size: 14px;
+  color: var(--text-sub);
+  line-height: 1.5;
+}

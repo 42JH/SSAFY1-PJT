@@ -1,0 +1,101 @@
+# 잇닥 (ITdoc)
+
+증상을 입력하면 **진료과를 추천**하고, **가까운 동네 병원을 거리순으로 추천**하며, 앱 내 **카카오맵**에서 위치를 바로 확인하는 의료 정보 추천 서비스.
+
+> ⚠️ 잇닥의 추천은 진단이 아닌 **참고용 정보**입니다.
+
+## 기술 스택
+
+| 구분 | 기술 |
+|---|---|
+| Backend | Django 4.2 + DRF |
+| Frontend | Vue 3 (Composition API) + Pinia + Vue Router |
+| 지도 | 카카오맵 JavaScript SDK (앱 내 임베드) |
+| DB | SQLite |
+| 거리 계산 | Haversine (Python) |
+
+## 실행 방법
+
+### 1. 백엔드 (Django) — http://127.0.0.1:8000
+
+```powershell
+cd backend
+.\venv\Scripts\Activate.ps1     # 최초 1회: python -m venv venv 후 pip install -r requirements.txt
+python manage.py migrate
+python manage.py seed_data       # 진료과(HIRA 코드 1:1)·키워드 사전 510개·응급 키워드·데모 병원
+python manage.py runserver
+```
+
+### (선택) 심평원 실데이터 적재 — 구미권 병·의원 550여 곳
+
+공공데이터포털에서 **건강보험심사평가원_병원정보서비스** 활용신청 후:
+
+```powershell
+python manage.py import_hira --key <일반인증키> --dry-run   # 미리보기
+python manage.py import_hira --key <일반인증키>              # 실제 적재 (데모 병원 대체)
+# 옵션: --regions 구미시,김천시,칠곡군  --sido-cd 370000  --probe-sido
+```
+
+- 진료과목코드(dgsbjtCd) 역방향 조회로 병원↔진료과 M:N을 상세 API 없이 구축
+- 치과는 세부과목 코드(50~61)까지 포함해 조회
+- 진료시간은 기본값(09:00~18:00) — 의료기관별상세정보서비스 연동 시 실데이터 가능
+
+### 2. 프론트엔드 (Vue) — http://localhost:5173
+
+```powershell
+cd frontend
+npm install
+# .env 에 카카오맵 JavaScript 키 입력
+# VITE_KAKAO_JS_KEY=발급받은키
+npm run dev
+```
+
+> 카카오 키 발급: [Kakao Developers](https://developers.kakao.com) → 앱 생성 → JavaScript 키 복사 → 플랫폼에 `http://localhost:5173` 등록
+
+## API 명세
+
+| Method | URL | 설명 |
+|---|---|---|
+| POST | `/api/recommend/` | 증상 텍스트 → 응급 분기 또는 진료과 1~3순위 추천 (근거 포함) |
+| GET | `/api/departments/` | 진료과 목록 |
+| GET | `/api/hospitals/?lat=&lng=&department_id=&radius=` | 위치·진료과 기반 병원 추천 (Haversine 거리·반경 자동 확장) |
+| GET | `/api/hospitals/<id>/` | 병원 상세 |
+
+### POST /api/recommend/ 응답 예시
+
+```json
+// 일반
+{"emergency": false, "results": [{"department_id": 2, "department": "이비인후과", "score": 6, "matched_keywords": ["콧물", "인후통"]}], "fallback": false}
+
+// 응급
+{"emergency": true, "matched_keywords": [{"keyword": "가슴통증", "category": "심혈관계"}], "message": "응급 상황일 수 있습니다. 즉시 119에 연락하세요."}
+
+// 폴백 (매칭 0건)
+{"emergency": false, "results": [], "fallback": true, "message": "정확한 추천이 어렵습니다. 가까운 내과를 먼저 방문해 보세요."}
+```
+
+## 핵심 로직
+
+1. **입력 정규화** — 공백 제거 + 동의어 치환 (부분일치 기반)
+2. **응급 검사** — `EmergencyKeyword` 우선 대조, 감지 시 119 안내로 강제 분기
+3. **사전 매칭** — `SymptomKeyword` 부분일치 → 진료과별 가중치 합산
+4. **랭킹** — 상위 1~3개 진료과 + 매칭 키워드(근거) 반환
+5. **폴백** — 매칭 0건 시 내과 우선 안내
+6. **병원 추천** — Haversine 거리 계산 → 영업중 우선·거리순 정렬, 결과 없으면 반경 자동 확장 (3km → 최대 20km)
+
+## 화면 흐름
+
+```
+홈 → 증상 입력 → [추천 로딩] → (일반) 진료과 추천 결과 / (응급) 응급 안내
+진료과 카드 선택 → 병원 리스트+지도 → 병원 상세(미니맵) → 전화/위치 확인
+```
+
+## 관리 (Django Admin)
+
+키워드 사전·응급 키워드·병원 데이터는 Django Admin에서 직접 관리합니다.
+
+```powershell
+cd backend
+python manage.py createsuperuser
+# http://127.0.0.1:8000/admin/
+```
