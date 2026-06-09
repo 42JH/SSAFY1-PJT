@@ -8,17 +8,17 @@
   python manage.py import_hira --key <일반인증키>
   python manage.py import_hira --key <키> --regions 구미시,김천시,칠곡군
   python manage.py import_hira --key <키> --probe-sido   # 시도코드 탐색
-  (키는 HIRA_SERVICE_KEY 환경변수로도 지정 가능)
+  (키는 backend/.env의 HIRA_SERVICE_KEY로도 지정 가능)
 
 참고: 진료시간은 별도 상세 API가 필요해 기본값(09:00~18:00)으로 적재.
 """
-import os
 import time as time_mod
 import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import time
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from api.models import Department, Hospital
@@ -42,7 +42,7 @@ class Command(BaseCommand):
     help = "심평원 병원정보서비스 API에서 구미권 병·의원과 진료과목을 받아 DB에 적재"
 
     def add_arguments(self, parser):
-        parser.add_argument("--key", help="공공데이터포털 일반 인증키 (또는 HIRA_SERVICE_KEY 환경변수)")
+        parser.add_argument("--key", help="공공데이터포털 일반 인증키 (또는 backend/.env의 HIRA_SERVICE_KEY)")
         parser.add_argument("--sido-cd", default=DEFAULT_SIDO_CD, help="시도코드 (기본: 370000 경북)")
         parser.add_argument("--regions", default=DEFAULT_REGIONS, help="쉼표 구분 시군구명 필터")
         parser.add_argument("--probe-sido", action="store_true", help="시도코드 후보를 탐색해 출력만 한다")
@@ -113,9 +113,9 @@ class Command(BaseCommand):
     # ── 메인 ──────────────────────────────────────────────────
 
     def handle(self, *args, **options):
-        key = options["key"] or os.environ.get("HIRA_SERVICE_KEY")
+        key = options["key"] or settings.HIRA_SERVICE_KEY
         if not key:
-            raise CommandError("--key 옵션 또는 HIRA_SERVICE_KEY 환경변수로 인증키를 지정하세요.")
+            raise CommandError("인증키가 없습니다. backend/.env의 HIRA_SERVICE_KEY 또는 --key로 지정하세요.")
 
         if options["probe_sido"]:
             self.probe_sido(key)

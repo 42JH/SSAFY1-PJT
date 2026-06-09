@@ -10,6 +10,7 @@ frontend/dist/
 
 # env
 frontend/.env
+backend/.env
 
 # IDE / OS
 .vscode/

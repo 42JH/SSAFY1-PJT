@@ -51,6 +51,30 @@ class Hospital(models.Model):
         return self.name
 
 
+class EmergencyCenter(models.Model):
+    """응급의료기관 (국립중앙의료원 E-Gen). 응급 분기 시 거리순 안내에 사용.
+
+    심평원 Hospital과 식별자 체계가 달라 매칭하지 않고 독립 저장한다.
+    """
+
+    hpid = models.CharField("기관코드", max_length=20, unique=True)
+    name = models.CharField("기관명", max_length=100)
+    address = models.CharField("주소", max_length=200, blank=True)
+    latitude = models.FloatField("위도")
+    longitude = models.FloatField("경도")
+    phone = models.CharField("대표전화", max_length=20, blank=True)
+    er_phone = models.CharField("응급실 전화", max_length=20, blank=True)
+    # 권역응급의료센터 / 지역응급의료센터 / 지역응급의료기관 등 (dutyEmclsName)
+    emcls_name = models.CharField("응급의료기관 분류", max_length=40, blank=True)
+
+    class Meta:
+        verbose_name = "응급의료기관"
+        verbose_name_plural = "응급의료기관"
+
+    def __str__(self):
+        return self.name
+
+
 class SymptomKeyword(models.Model):
     """증상 키워드 ↔ 진료과 매핑 사전. 추천 점수화의 핵심 데이터."""
 

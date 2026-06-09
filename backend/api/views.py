@@ -14,7 +14,12 @@ from .serializers import (
     HospitalSerializer,
     RecommendRequestSerializer,
 )
-from .services import check_emergency, find_hospitals, recommend_departments
+from .services import (
+    check_emergency,
+    find_emergency_centers,
+    find_hospitals,
+    recommend_departments,
+)
 
 FALLBACK_MESSAGE = "정확한 추천이 어렵습니다. 가까운 내과를 먼저 방문해 보세요."
 
@@ -183,6 +188,27 @@ def directions(request):
         "distance_m": route["summary"]["distance"],
         "duration_s": route["summary"]["duration"],
     })
+
+
+@api_view(["GET"])
+def emergency_center_list(request):
+    """위치 기반 가까운 응급의료기관 목록.
+
+    GET /api/emergency-centers/?lat=&lng=
+    """
+    lat = request.query_params.get("lat")
+    lng = request.query_params.get("lng")
+    try:
+        user_lat, user_lng = float(lat), float(lng)
+        if not all(math.isfinite(v) for v in (user_lat, user_lng)):
+            raise ValueError
+    except (TypeError, ValueError):
+        return Response(
+            {"detail": "lat/lng(유한한 숫자)가 필요합니다."},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    return Response({"centers": find_emergency_centers(user_lat, user_lng)})
 
 
 @api_view(["GET"])

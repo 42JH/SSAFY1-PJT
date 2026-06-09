@@ -75,8 +75,8 @@ onMounted(async () => {
     // 생성 직후 크기 재계산 — 타일 부분 렌더 방지
     map.relayout()
     map.setCenter(new kakao.maps.LatLng(props.center.lat, props.center.lng))
-    // 그리드/반응형 폭이 생성 후 늦게 확정될 때 타일이 절반만 그려지는(살구색 워터마크) 문제 방지:
-    // 컨테이너 크기가 바뀔 때마다 relayout + 중심 복원
+    // 컨테이너 폭이 나중에 확정되면 타일이 절반만 그려짐(살구색 워터마크).
+    // 크기가 바뀔 때마다 relayout + 중심 복원해서 메운다
     if (window.ResizeObserver) {
       resizeObserver = new ResizeObserver(() => {
         if (!map) return

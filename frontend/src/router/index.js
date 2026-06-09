@@ -14,6 +14,12 @@ const router = createRouter({
     },
     { path: '/hospitals/:id', name: 'hospital-detail', component: () => import('@/views/HospitalDetailView.vue'), props: true },
     { path: '/emergency', name: 'emergency', component: () => import('@/views/EmergencyView.vue') },
+    {
+      path: '/emergency-rooms',
+      name: 'emergency-rooms',
+      component: () => import('@/views/EmergencyRoomsView.vue'),
+      meta: { wide: true }, // 지도+리스트 분할 뷰
+    },
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue') },
     { path: '/signup', name: 'signup', component: () => import('@/views/SignupView.vue') },
     {

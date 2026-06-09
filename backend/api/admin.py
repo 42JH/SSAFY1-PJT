@@ -1,6 +1,13 @@
 from django.contrib import admin
 
-from .models import Department, EmergencyKeyword, Hospital, SymptomKeyword, SymptomLog
+from .models import (
+    Department,
+    EmergencyCenter,
+    EmergencyKeyword,
+    Hospital,
+    SymptomKeyword,
+    SymptomLog,
+)
 
 # 관리 페이지 타이틀
 admin.site.site_header = "잇닥 (ITdoc) 관리"
@@ -46,6 +53,14 @@ class HospitalAdmin(admin.ModelAdmin):
         if obj.sun_open_time and obj.sun_close_time:
             return f"{obj.sun_open_time:%H:%M}~{obj.sun_close_time:%H:%M}"
         return "휴진"
+
+
+@admin.register(EmergencyCenter)
+class EmergencyCenterAdmin(admin.ModelAdmin):
+    list_display = ("id", "name", "emcls_name", "address", "phone", "er_phone")
+    list_filter = ("emcls_name",)
+    search_fields = ("name", "address")
+    list_per_page = 50
 
 
 @admin.register(SymptomKeyword)

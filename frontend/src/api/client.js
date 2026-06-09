@@ -21,9 +21,8 @@ function clearTokens() {
 // 동시에 여러 요청이 401을 받아도 refresh는 한 번만 (요청 폭주 방지)
 let refreshPromise = null
 
-// 401 처리: access 토큰 만료 시 refresh로 자동 갱신 후 원요청 재시도.
-// refresh도 만료됐으면 토큰을 비우고 인증 없이 한 번 더 시도 →
-// 공개 엔드포인트(진료과·병원 등)가 게스트로 정상 동작하도록 보장.
+// access 토큰 만료(401) → refresh로 갱신 후 원요청 재시도.
+// refresh도 만료면 토큰을 비우고 게스트로 재시도 (공개 API는 비로그인도 허용)
 client.interceptors.response.use(
   (res) => res,
   async (error) => {
@@ -83,6 +82,11 @@ export function getHospitals({ lat, lng, departmentId, radius, openOnly } = {}) 
 /** 병원 상세 */
 export function getHospitalDetail(id) {
   return client.get(`/hospitals/${id}/`)
+}
+
+/** 위치 기반 가까운 응급의료기관(응급실 보유) 목록 */
+export function getEmergencyCenters({ lat, lng } = {}) {
+  return client.get('/emergency-centers/', { params: { lat, lng } })
 }
 
 /** 자동차 길찾기 (카카오모빌리티 — 백엔드 프록시) */

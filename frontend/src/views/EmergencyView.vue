@@ -31,7 +31,7 @@
       <div class="action-col">
         <a class="btn btn-danger" href="tel:119">📞 119 전화하기</a>
         <button class="btn btn-outline-danger" @click="goEmergencyRooms">
-          🏥 가까운 병원 보기
+          🏥 가까운 응급실 찾기
         </button>
       </div>
     </div>
@@ -47,8 +47,8 @@ const router = useRouter()
 const store = useRecommendStore()
 
 function goEmergencyRooms() {
-  store.selectDepartment(null)
-  router.push({ name: 'hospitals' })
+  // 일반 병·의원 전체가 아니라 응급실 보유 기관만 거리순으로 안내
+  router.push({ name: 'emergency-rooms' })
 }
 </script>
 

@@ -15,7 +15,7 @@ from datetime import datetime
 
 from django.utils import timezone
 
-from .models import EmergencyKeyword, SymptomKeyword
+from .models import EmergencyCenter, EmergencyKeyword, SymptomKeyword
 
 # ── ① 입력 정규화 ──────────────────────────────────────────────
 
@@ -189,3 +189,29 @@ def find_hospitals(queryset, user_lat: float, user_lng: float,
             "reasons": reasons,
         })
     return results, applied_radius, expanded
+
+
+# ── 응급의료기관: 거리순 안내 ──────────────────────────────────
+
+def find_emergency_centers(user_lat: float, user_lng: float, limit: int = 10):
+    """가까운 응급의료기관을 거리순으로 반환 (응급실은 24시간이라 영업 필터 없음)."""
+    scored = []
+    for c in EmergencyCenter.objects.all():
+        dist = haversine_km(user_lat, user_lng, c.latitude, c.longitude)
+        scored.append((c, dist))
+    scored.sort(key=lambda cd: cd[1])
+
+    return [
+        {
+            "id": c.id,
+            "name": c.name,
+            "address": c.address,
+            "latitude": c.latitude,
+            "longitude": c.longitude,
+            "phone": c.phone,
+            "er_phone": c.er_phone,
+            "type": c.emcls_name,
+            "distance_km": round(dist, 2),
+        }
+        for c, dist in scored[:limit]
+    ]

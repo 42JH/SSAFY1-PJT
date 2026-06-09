@@ -8,6 +8,7 @@ urlpatterns = [
     path("departments/", views.department_list, name="department-list"),
     path("hospitals/", views.hospital_list, name="hospital-list"),
     path("hospitals/<int:pk>/", views.hospital_detail, name="hospital-detail"),
+    path("emergency-centers/", views.emergency_center_list, name="emergency-center-list"),
     path("directions/", views.directions, name="directions"),
     # 인증 (F01·F09 — 게스트 흐름과 독립)
     path("auth/signup/", auth_views.signup, name="signup"),

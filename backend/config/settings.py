@@ -2,7 +2,12 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+# 외부 API 키 등 비밀값은 backend/.env 에서 로드 (.env.example 참고, .env는 깃 제외)
+load_dotenv(BASE_DIR / ".env")
 
 SECRET_KEY = "django-insecure-itdoc-dev-key-change-in-production"
 
@@ -100,8 +105,10 @@ SIMPLE_JWT = {
     "REFRESH_TOKEN_LIFETIME": timedelta(days=7),
 }
 
-# --- 카카오모빌리티 길찾기 API (REST 키 — 백엔드에서만 사용, 프론트 노출 금지) ---
-KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "b0465c8274608d2e735a57d89a9b16a2")
+# --- 외부 API 키 (backend/.env 에서 로드) ---
+KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "")  # 카카오모빌리티 길찾기
+HIRA_SERVICE_KEY = os.environ.get("HIRA_SERVICE_KEY", "")      # 심평원 병원정보 (import_hira)
+EGEN_SERVICE_KEY = os.environ.get("EGEN_SERVICE_KEY", "")      # E-Gen 응급의료기관 (import_emergency)
 
 # --- CORS (개발용: Vite dev server 허용) ---
 CORS_ALLOWED_ORIGINS = [
