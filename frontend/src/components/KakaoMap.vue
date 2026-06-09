@@ -44,6 +44,7 @@ let clusterer = null
 let polyline = null
 let infowindow = null
 let userOverlay = null
+let resizeObserver = null
 
 // 상위 추천 메달 색 (1·2·3위)
 const MEDAL_COLORS = ['#f5b301', '#9aa5b1', '#c9762b']
@@ -74,6 +75,17 @@ onMounted(async () => {
     // 생성 직후 크기 재계산 — 타일 부분 렌더 방지
     map.relayout()
     map.setCenter(new kakao.maps.LatLng(props.center.lat, props.center.lng))
+    // 그리드/반응형 폭이 생성 후 늦게 확정될 때 타일이 절반만 그려지는(살구색 워터마크) 문제 방지:
+    // 컨테이너 크기가 바뀔 때마다 relayout + 중심 복원
+    if (window.ResizeObserver) {
+      resizeObserver = new ResizeObserver(() => {
+        if (!map) return
+        const c = map.getCenter()
+        map.relayout()
+        map.setCenter(c)
+      })
+      resizeObserver.observe(mapEl.value)
+    }
     renderMarkers()
     renderUserLocation()
     renderPath()
@@ -89,7 +101,10 @@ function onResize() {
   if (map) map.relayout()
 }
 window.addEventListener('resize', onResize)
-onUnmounted(() => window.removeEventListener('resize', onResize))
+onUnmounted(() => {
+  window.removeEventListener('resize', onResize)
+  if (resizeObserver) resizeObserver.disconnect()
+})
 
 watch(() => props.hospitals, () => {
   if (ready.value) renderMarkers()

@@ -51,11 +51,13 @@ export const useLocationStore = defineStore('location', {
             reject(new Error('geolocation unsupported'))
             return
           }
-          // 데스크톱은 IP/와이파이 기반이라 highAccuracy 의미가 없고 느려지기만 함
+          // 데스크톱은 IP/와이파이 기반이라 highAccuracy 의미가 없고 느려지기만 함.
+          // PC에선 어차피 권역 밖으로 잡혀 버려지므로 timeout을 짧게 잡아 체감 지연 제거,
+          // maximumAge를 길게 줘 재방문 시 캐시 좌표를 즉시 사용(추가 대기 없음)
           navigator.geolocation.getCurrentPosition(resolve, reject, {
             enableHighAccuracy: false,
-            timeout: 5000,
-            maximumAge: 60000,
+            timeout: 2500,
+            maximumAge: 300000,
           })
         })
         // 사용자가 그 사이 수동 설정했으면 GPS로 덮어쓰지 않음
