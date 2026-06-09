@@ -8,6 +8,7 @@ Hospital.ykiho를 키로 상세정보(getDtlInfo)를 조회해
   python manage.py import_hours --key <일반인증키>
   python manage.py import_hours --key <키> --base-url https://apis.data.go.kr/B551182/MadmDtlInfoService2.7 --op getDtlInfo2.7
   python manage.py import_hours --key <키> --limit 20   # 일부만 테스트
+  (키는 backend/.env의 HIRA_SERVICE_KEY로도 지정 가능)
 """
 import time as time_mod
 import urllib.parse
@@ -15,6 +16,7 @@ import urllib.request
 import xml.etree.ElementTree as ET
 from datetime import time
 
+from django.conf import settings
 from django.core.management.base import BaseCommand, CommandError
 
 from api.models import Hospital
@@ -46,7 +48,7 @@ class Command(BaseCommand):
     help = "심평원 상세정보 API에서 병원 진료시간(월요일 기준)을 받아 적재"
 
     def add_arguments(self, parser):
-        parser.add_argument("--key", required=True, help="공공데이터포털 일반 인증키")
+        parser.add_argument("--key", help="공공데이터포털 일반 인증키 (또는 backend/.env의 HIRA_SERVICE_KEY)")
         parser.add_argument("--base-url", default=DEFAULT_BASE)
         parser.add_argument("--op", default=DEFAULT_OP)
         parser.add_argument("--limit", type=int, default=None, help="처리할 병원 수 제한 (테스트용)")
@@ -66,7 +68,9 @@ class Command(BaseCommand):
                 time_mod.sleep(2 ** attempt)
 
     def handle(self, *args, **options):
-        key = options["key"]
+        key = options["key"] or settings.HIRA_SERVICE_KEY
+        if not key:
+            raise CommandError("인증키가 없습니다. backend/.env의 HIRA_SERVICE_KEY 또는 --key로 지정하세요.")
         base_url, op = options["base_url"], options["op"]
 
         hospitals = Hospital.objects.exclude(ykiho=None).order_by("id")
