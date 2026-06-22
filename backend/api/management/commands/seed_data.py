@@ -3,12 +3,19 @@
 사용법: python manage.py seed_data
 (여러 번 실행해도 안전 — 기존 데이터를 지우고 새로 적재)
 """
+import csv
 from datetime import time
+from pathlib import Path
 
 from django.core.management.base import BaseCommand
 
-from api.keyword_dictionary import KEYWORDS
+from api.keyword_dictionary import DISPLAY_LABELS, KEYWORDS
 from api.models import Department, EmergencyKeyword, Hospital, SymptomKeyword
+
+# LLM 생성 → 사람 검수를 거친 승인 키워드 CSV (있으면 사전에 추가 적재)
+# 컬럼: keyword, department, weight, label  (generate_keywords 커맨드가 후보를 만들고,
+# 검수자가 추려 이 파일로 옮긴다)
+APPROVED_CSV = Path(__file__).resolve().parent.parent.parent / "data" / "keywords_approved.csv"
 
 # ── 진료과 taxonomy: HIRA 진료과목코드(dgsbjtCd)와 1:1 정규화 ───
 # {이름: (코드, 설명)} — 환자가 직접 내원하는 과만 추천 대상으로 포함
@@ -170,17 +177,35 @@ class Command(BaseCommand):
             )
         self.stdout.write(self.style.SUCCESS(f"진료과 {len(depts)}개 적재 (HIRA 코드 매핑)"))
 
-        # 증상 키워드 사전 (~500개) — 중복(keyword, dept) 제거 후 적재
+        # 증상 키워드 사전 (~500개) + 승인 CSV — 중복(keyword, dept) 제거 후 적재
+        # (kw, dept, weight, label) 4-튜플로 정규화해 합친다. label은 DISPLAY_LABELS 우선.
+        merged = [(kw, dept, w, DISPLAY_LABELS.get(kw, "")) for kw, dept, w in KEYWORDS]
+        approved_count = 0
+        if APPROVED_CSV.exists():
+            with APPROVED_CSV.open(encoding="utf-8-sig", newline="") as f:
+                for r in csv.DictReader(f):
+                    dept = (r.get("department") or "").strip()
+                    kw = (r.get("keyword") or "").strip()
+                    if not kw or dept not in depts:
+                        continue  # 알 수 없는 진료과/빈 키워드는 건너뜀
+                    try:
+                        w = max(1, min(3, int(r.get("weight") or 2)))
+                    except ValueError:
+                        w = 2
+                    merged.append((kw, dept, w, (r.get("label") or "").strip()))
+                    approved_count += 1
+
         seen = set()
         rows = []
-        for kw, dept, w in KEYWORDS:
+        for kw, dept, w, label in merged:
             key = (kw, dept)
             if key in seen:
                 continue
             seen.add(key)
-            rows.append(SymptomKeyword(keyword=kw, department=depts[dept], weight=w))
+            rows.append(SymptomKeyword(keyword=kw, department=depts[dept], weight=w, label=label))
         SymptomKeyword.objects.bulk_create(rows)
-        self.stdout.write(self.style.SUCCESS(f"증상 키워드 {len(rows)}개 적재"))
+        extra = f" (승인 CSV {approved_count}건 포함)" if approved_count else ""
+        self.stdout.write(self.style.SUCCESS(f"증상 키워드 {len(rows)}개 적재{extra}"))
 
         # 응급 키워드
         EmergencyKeyword.objects.bulk_create([

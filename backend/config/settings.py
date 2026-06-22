@@ -109,6 +109,7 @@ SIMPLE_JWT = {
 KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "")  # 카카오모빌리티 길찾기
 HIRA_SERVICE_KEY = os.environ.get("HIRA_SERVICE_KEY", "")      # 심평원 병원정보 (import_hira)
 EGEN_SERVICE_KEY = os.environ.get("EGEN_SERVICE_KEY", "")      # E-Gen 응급의료기관 (import_emergency)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")    # 증상 키워드 후보 생성 (generate_keywords)
 
 # --- CORS (개발용: Vite dev server 허용) ---
 CORS_ALLOWED_ORIGINS = [

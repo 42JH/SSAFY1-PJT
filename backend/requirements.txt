@@ -3,3 +3,4 @@ djangorestframework
 django-cors-headers
 djangorestframework-simplejwt
 python-dotenv
+anthropic  # generate_keywords 커맨드: 증상 키워드 후보 LLM 생성 (선택)

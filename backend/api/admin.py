@@ -5,6 +5,8 @@ from .models import (
     EmergencyCenter,
     EmergencyKeyword,
     Hospital,
+    HospitalReview,
+    KeywordFeedback,
     SymptomKeyword,
     SymptomLog,
 )
@@ -67,10 +69,10 @@ class EmergencyCenterAdmin(admin.ModelAdmin):
 class SymptomKeywordAdmin(admin.ModelAdmin):
     """추천 품질 운영의 핵심 — 가중치를 목록에서 바로 수정 가능"""
 
-    list_display = ("id", "keyword", "department", "weight")
-    list_editable = ("weight",)
+    list_display = ("id", "keyword", "label", "department", "weight")
+    list_editable = ("label", "weight")
     list_filter = ("department", "weight")
-    search_fields = ("keyword",)
+    search_fields = ("keyword", "label")
     list_per_page = 100
     ordering = ("department__code", "-weight")
 
@@ -82,9 +84,28 @@ class EmergencyKeywordAdmin(admin.ModelAdmin):
     search_fields = ("keyword",)
 
 
+@admin.register(HospitalReview)
+class HospitalReviewAdmin(admin.ModelAdmin):
+    list_display = ("id", "hospital", "user", "rating", "department", "helpful_count", "created_at")
+    list_filter = ("rating", "department")
+    search_fields = ("hospital__name", "user__username", "content")
+    date_hierarchy = "created_at"
+    list_per_page = 50
+
+
 @admin.register(SymptomLog)
 class SymptomLogAdmin(admin.ModelAdmin):
-    list_display = ("id", "user", "symptom_text", "recommended_dept", "score", "searched_at")
-    list_filter = ("recommended_dept",)
+    list_display = ("id", "user", "symptom_text", "recommended_dept", "score", "feedback", "searched_at")
+    list_filter = ("recommended_dept", "feedback")
     date_hierarchy = "searched_at"
-    readonly_fields = ("user", "symptom_text", "recommended_dept", "score", "searched_at")
+    readonly_fields = ("user", "symptom_text", "recommended_dept", "score", "feedback", "searched_at")
+
+
+@admin.register(KeywordFeedback)
+class KeywordFeedbackAdmin(admin.ModelAdmin):
+    """추천 자가학습 결과 — 키워드→진료과 보정 점수를 모니터링/초기화"""
+
+    list_display = ("id", "keyword", "department", "score", "updated_at")
+    list_filter = ("department",)
+    search_fields = ("keyword",)
+    ordering = ("-updated_at",)

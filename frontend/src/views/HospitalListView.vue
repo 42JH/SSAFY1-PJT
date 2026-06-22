@@ -97,6 +97,10 @@
               <span class="h-dist" v-if="h.distance_km != null">{{ h.distance_km }}km</span>
             </div>
             <p class="h-addr">{{ h.address }}</p>
+            <p class="h-rating" v-if="h.review_count">
+              <span class="stars">★</span> {{ h.rating.toFixed(1) }}
+              <span class="h-rating-count">({{ h.review_count }})</span>
+            </p>
             <div class="h-tags">
               <span v-for="r in h.reasons" :key="r" class="tag" :class="r === '영업중' ? 'tag-green' : 'tag-blue'">
                 {{ r }}
@@ -406,6 +410,18 @@ function goDetail(id) {
   margin-top: 6px;
   font-size: 13px;
   color: var(--text-sub);
+}
+.h-rating {
+  margin-top: 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.h-rating .stars {
+  color: #f5a623;
+}
+.h-rating-count {
+  color: var(--text-sub);
+  font-weight: 400;
 }
 .h-tags {
   margin-top: 10px;

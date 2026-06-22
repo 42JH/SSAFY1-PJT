@@ -15,7 +15,13 @@ from datetime import datetime
 
 from django.utils import timezone
 
-from .models import EmergencyCenter, EmergencyKeyword, SymptomKeyword
+from .models import (
+    Department,
+    EmergencyCenter,
+    EmergencyKeyword,
+    KeywordFeedback,
+    SymptomKeyword,
+)
 
 # ── ① 입력 정규화 ──────────────────────────────────────────────
 
@@ -39,8 +45,9 @@ SYNONYMS = {
     "기침나": "기침",
     "열나": "발열",
     "열이나": "발열",
-    "간지러": "가려움",
-    "간지럽": "가려움",
+    # "간지러/간지럽 → 가려움"은 전역 치환이라 "코가 간지러"·"목이 간지러"까지
+    # 피부과(가려움)로 끌고 가, 부위가 붙은 이비인후과 키워드(코가간지·목간지)를 가렸다.
+    # 그래서 동의어는 빼고, 일반 가려움 활용형은 피부과 키워드("간지러","간지럽")로 직접 매칭한다.
 }
 
 
@@ -70,8 +77,13 @@ def check_emergency(symptom_text: str):
 
 # ── ③④⑤⑥ 진료과 추천 ─────────────────────────────────────────
 
+# 진료과별 누적 사용자 피드백이 추천 점수에 주는 영향 상한(±). 소수 표가 운영자
+# 사전(SymptomKeyword.weight)을 뒤집지 못하도록 클램프해 추천을 둔감하게 유지한다.
+FEEDBACK_CAP = 5
+
+
 def recommend_departments(symptom_text: str, top_n: int = 3):
-    """키워드 사전 매칭 → 진료과별 가중치 점수화 → 1~N순위 랭킹.
+    """키워드 사전 매칭 → 진료과별 가중치 점수화 → 사용자 피드백 보정 → 1~N순위 랭킹.
 
     반환: [{department_id, department, score, matched_keywords}, ...] (점수 내림차순)
     """
@@ -80,12 +92,28 @@ def recommend_departments(symptom_text: str, top_n: int = 3):
     dept_scores = defaultdict(int)
     dept_keywords = defaultdict(list)
     dept_names = {}
+    matched_norm = set()
 
     for sk in SymptomKeyword.objects.select_related("department"):
-        if normalize(sk.keyword) in norm:
+        kw_norm = normalize(sk.keyword)
+        if kw_norm in norm:
             dept_scores[sk.department_id] += sk.weight
-            dept_keywords[sk.department_id].append(sk.keyword)
+            # 근거에는 구어체 토큰("배가아")이 아니라 표준 증상명("복통")을 노출, 중복 제거
+            display = sk.label or sk.keyword
+            if display not in dept_keywords[sk.department_id]:
+                dept_keywords[sk.department_id].append(display)
             dept_names[sk.department_id] = sk.department.name
+            matched_norm.add(kw_norm)
+
+    # 사용자 추천 평가(👍/👎) 학습 보정: 매칭 키워드의 피드백을 진료과별로 합산해
+    # ±FEEDBACK_CAP로 클램프 후 가산. 👍/👎는 기존 후보 과의 순위만 조정한다.
+    if matched_norm and dept_scores:
+        fb_by_dept = defaultdict(int)
+        for fb in KeywordFeedback.objects.filter(keyword__in=matched_norm):
+            fb_by_dept[fb.department_id] += fb.score
+        for dept_id in list(dept_scores):
+            adj = max(-FEEDBACK_CAP, min(FEEDBACK_CAP, fb_by_dept.get(dept_id, 0)))
+            dept_scores[dept_id] = max(0, dept_scores[dept_id] + adj)
 
     ranked = sorted(dept_scores.items(), key=lambda kv: (-kv[1], dept_names[kv[0]]))
 
@@ -100,9 +128,51 @@ def recommend_departments(symptom_text: str, top_n: int = 3):
     ]
 
 
-# ── 병원 추천: Haversine 거리 · 영업상태 · 반경 확장 ──────────────
+def apply_recommendation_feedback(symptom_text: str, dept_name: str, delta: int) -> None:
+    """추천 평가(👍/👎)를 (매칭 키워드 → 진료과) 보정 점수에 반영.
+
+    delta: 적용할 변화량(신규 👍=+1, 👍→👎=-2, 👎 취소=+1 …). 해당 증상에서 그 진료과에
+    매칭됐던 키워드 각각의 KeywordFeedback.score를 delta만큼 가감한다.
+    """
+    if not delta:
+        return
+    dept = Department.objects.filter(name=dept_name).first()
+    if dept is None:
+        return  # 폴백("(매칭 없음)" 등)이거나 삭제된 진료과 → 학습 대상 아님
+
+    norm = normalize(symptom_text)
+    for sk in SymptomKeyword.objects.filter(department=dept):
+        kw_norm = normalize(sk.keyword)
+        if kw_norm in norm:
+            fb, _ = KeywordFeedback.objects.get_or_create(keyword=kw_norm, department=dept)
+            fb.score += delta
+            fb.save(update_fields=["score", "updated_at"])
+
+
+# ── 병원 추천: Haversine 거리 · 영업상태 · 반경 확장 · 평점 보정 ──
 
 EARTH_RADIUS_KM = 6371.0
+
+# 후기 평점이 추천 순위에 미치는 영향. 거리 우선 구조를 유지하기 위해 작게 둔다.
+# effective_distance = dist * (1 - RATING_ALPHA * quality)  (quality∈[0,1])
+# 0.15이면 만점(★5) 병원이 실제 거리보다 최대 15% 가깝게 평가됨.
+RATING_ALPHA = 0.15
+# 베이즈 평균의 사전 표본 수(C). 후기가 이 수에 못 미치면 전체 평균 쪽으로 끌어당겨
+# '리뷰 1개 ★5'가 '리뷰 200개 ★4.3'을 이기는 표본 편향을 막는다.
+RATING_PRIOR_COUNT = 5
+RATING_HIGH_THRESHOLD = 4.0  # 이 이상이면 추천 근거에 '평점높음' 표시
+
+
+def bayesian_rating(avg: float, count: int, global_mean: float,
+                    prior: int = RATING_PRIOR_COUNT) -> float:
+    """베이즈 평균: (C*m + n*avg) / (C + n). 후기 적은 병원의 평점을 보수적으로 추정.
+
+    avg/count: 해당 병원의 단순 평균·후기 수, global_mean(m): 전체 병원 평균 평점.
+    후기가 없으면(count=0) 전체 평균을 반환한다.
+    """
+    if count <= 0:
+        return global_mean
+    return (prior * global_mean + count * avg) / (prior + count)
 
 
 def haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
@@ -141,8 +211,14 @@ def is_open_now(hospital, now: datetime = None) -> bool:
 
 def find_hospitals(queryset, user_lat: float, user_lng: float,
                    radius_km: float = 3.0, max_radius_km: float = 20.0,
-                   limit: int = 20, open_only: bool = False):
+                   limit: int = 20, open_only: bool = False,
+                   global_mean: float = 0.0):
     """거리 계산 → (영업중 필터) → 반경 필터(결과 없으면 자동 확장) → 정렬.
+
+    정렬은 영업중 우선 → '평점 보정 거리'(가까운 순). 평점이 높을수록 실제 거리보다
+    가깝게 평가되지만(RATING_ALPHA), 후기 없는 병원도 base 거리로 그대로 노출된다.
+    평점 집계를 쓰려면 queryset에 review_avg/review_count를 annotate하고 global_mean을
+    함께 전달한다(없으면 보정 계수는 1로 동작).
 
     반환: (병원 dict 리스트, 최종 적용 반경 km, 반경이 확장되었는지 여부)
     """
@@ -152,7 +228,14 @@ def find_hospitals(queryset, user_lat: float, user_lng: float,
         open_now = is_open_now(h)  # 요일·시각 판정은 후보당 1회만 계산
         if open_only and not open_now:
             continue
-        candidates.append((h, dist, open_now))
+        # annotate 안 된 queryset에서도 안전하도록 getattr 기본값 사용
+        review_count = getattr(h, "review_count", 0) or 0
+        review_avg = getattr(h, "review_avg", None) or 0.0
+        rating = bayesian_rating(review_avg, review_count, global_mean)
+        # 평점 1~5 → 품질 0~1로 정규화 후 거리 보정 (후기 0건이면 quality 0 취급)
+        quality = (rating - 1) / 4 if review_count else 0.0
+        eff_dist = dist * (1 - RATING_ALPHA * quality)
+        candidates.append((h, dist, open_now, rating, review_count, eff_dist))
 
     applied_radius = radius_km
     within = [c for c in candidates if c[1] <= applied_radius]
@@ -164,16 +247,18 @@ def find_hospitals(queryset, user_lat: float, user_lng: float,
         expanded = True
         within = [c for c in candidates if c[1] <= applied_radius]
 
-    # 영업중 우선 → 거리 가까운 순
-    within.sort(key=lambda c: (not c[2], c[1]))
+    # 영업중 우선 → 평점 보정 거리(가까운 순). 반경 필터는 실제 거리(c[1]) 기준 유지.
+    within.sort(key=lambda c: (not c[2], c[5]))
 
     results = []
-    for h, dist, open_now in within[:limit]:
+    for h, dist, open_now, rating, review_count, _eff in within[:limit]:
         reasons = []
         if dist <= 1.0:
             reasons.append("가까움")
         if open_now:
             reasons.append("영업중")
+        if review_count and rating >= RATING_HIGH_THRESHOLD:
+            reasons.append("평점높음")
         results.append({
             "id": h.id,
             "name": h.name,
@@ -186,6 +271,8 @@ def find_hospitals(queryset, user_lat: float, user_lng: float,
             "departments": [d.name for d in h.departments.all()],
             "distance_km": round(dist, 2),
             "is_open": open_now,
+            "rating": round(rating, 1) if review_count else None,
+            "review_count": review_count,
             "reasons": reasons,
         })
     return results, applied_radius, expanded

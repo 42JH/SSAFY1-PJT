@@ -79,9 +79,33 @@ export function getHospitals({ lat, lng, departmentId, radius, openOnly } = {}) 
   return client.get('/hospitals/', { params })
 }
 
-/** 병원 상세 */
+/** 병원 상세 (평점 요약 포함) */
 export function getHospitalDetail(id) {
   return client.get(`/hospitals/${id}/`)
+}
+
+/** 병원 후기 목록 (최신순) */
+export function getHospitalReviews(id) {
+  return client.get(`/hospitals/${id}/reviews/`)
+}
+
+/** 후기 작성/수정 (로그인 필수, 1인 1병원 1후기 → 재작성 시 수정) */
+export function postHospitalReview(id, { rating, content, departmentId } = {}) {
+  return client.post(`/hospitals/${id}/reviews/`, {
+    rating,
+    content,
+    department_id: departmentId ?? null,
+  })
+}
+
+/** 내 후기 삭제 */
+export function deleteHospitalReview(reviewId) {
+  return client.delete(`/reviews/${reviewId}/`)
+}
+
+/** 추천 결과 평가 (👍=1 / 👎=-1 / 0=취소). 키워드→진료과 추천을 자가학습시킴 */
+export function sendLogFeedback(logId, value) {
+  return client.post(`/auth/logs/${logId}/feedback/`, { value })
 }
 
 /** 위치 기반 가까운 응급의료기관(응급실 보유) 목록 */

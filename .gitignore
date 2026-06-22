@@ -12,6 +12,9 @@ frontend/dist/
 frontend/.env
 backend/.env
 
+# LLM 키워드 생성 임시 산출물 (검수 전 후보 — keywords_approved.csv만 커밋)
+backend/api/data/keyword_candidates.csv
+
 # IDE / OS
 .vscode/
 .idea/

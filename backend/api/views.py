@@ -4,22 +4,32 @@ import urllib.parse
 import urllib.request
 
 from django.conf import settings
+from django.db.models import Avg, Count
 from rest_framework import status
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
-from .models import Department, Hospital, SymptomLog
+from .models import Department, Hospital, HospitalReview, SymptomLog
 from .serializers import (
     DepartmentSerializer,
+    HospitalReviewSerializer,
+    HospitalReviewWriteSerializer,
     HospitalSerializer,
     RecommendRequestSerializer,
 )
 from .services import (
+    bayesian_rating,
     check_emergency,
     find_emergency_centers,
     find_hospitals,
     recommend_departments,
 )
+
+
+def _global_mean_rating(default: float = 0.0) -> float:
+    """전체 병원 후기 평균(베이즈 사전 평균 m). 후기가 하나도 없으면 default."""
+    return HospitalReview.objects.aggregate(m=Avg("rating"))["m"] or default
 
 FALLBACK_MESSAGE = "정확한 추천이 어렵습니다. 가까운 내과를 먼저 방문해 보세요."
 
@@ -85,7 +95,11 @@ def hospital_list(request):
     GET /api/hospitals/?lat=&lng=&department_id=&radius=
     lat/lng 없으면 거리 계산 없이 전체 목록 반환.
     """
-    queryset = Hospital.objects.all()
+    # 후기 평균·개수를 미리 집계해 정렬 시 N+1 쿼리 없이 평점 보정에 사용
+    queryset = Hospital.objects.annotate(
+        review_avg=Avg("reviews__rating"),
+        review_count=Count("reviews"),
+    )
 
     department_id = request.query_params.get("department_id")
     if department_id:
@@ -120,7 +134,8 @@ def hospital_list(request):
 
     open_only = request.query_params.get("open_only") in ("1", "true")
     hospitals, applied_radius, expanded = find_hospitals(
-        queryset, user_lat, user_lng, radius_km=radius, open_only=open_only
+        queryset, user_lat, user_lng, radius_km=radius, open_only=open_only,
+        global_mean=_global_mean_rating(),
     )
     return Response({
         "hospitals": hospitals,
@@ -213,9 +228,74 @@ def emergency_center_list(request):
 
 @api_view(["GET"])
 def hospital_detail(request, pk):
-    """GET /api/hospitals/<id>/ — 병원 상세 (미니맵용 좌표 포함)"""
+    """GET /api/hospitals/<id>/ — 병원 상세 (미니맵 좌표 + 후기 평점 요약 포함)"""
     try:
         hospital = Hospital.objects.prefetch_related("departments").get(pk=pk)
     except Hospital.DoesNotExist:
         return Response({"detail": "병원을 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
-    return Response(HospitalSerializer(hospital).data)
+
+    agg = hospital.reviews.aggregate(avg=Avg("rating"), cnt=Count("id"))
+    count = agg["cnt"] or 0
+    data = HospitalSerializer(hospital).data
+    data["rating"] = round(agg["avg"], 1) if count else None
+    data["bayes_rating"] = (
+        round(bayesian_rating(agg["avg"] or 0, count, _global_mean_rating()), 1)
+        if count else None
+    )
+    data["review_count"] = count
+    return Response(data)
+
+
+@api_view(["GET", "POST"])
+def hospital_reviews(request, pk):
+    """GET  /api/hospitals/<id>/reviews/  — 후기 목록 (최신순)
+    POST /api/hospitals/<id>/reviews/  — 후기 작성/수정 (로그인 필수, 1인 1병원 1후기)
+    """
+    try:
+        hospital = Hospital.objects.get(pk=pk)
+    except Hospital.DoesNotExist:
+        return Response({"detail": "병원을 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+
+    if request.method == "GET":
+        reviews = hospital.reviews.select_related("user", "department")
+        return Response(
+            HospitalReviewSerializer(reviews, many=True, context={"request": request}).data
+        )
+
+    # POST — 로그인 필수
+    if not request.user.is_authenticated:
+        return Response({"detail": "로그인이 필요합니다."}, status=status.HTTP_401_UNAUTHORIZED)
+
+    serializer = HospitalReviewWriteSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    vd = serializer.validated_data
+
+    department = None
+    dept_id = vd.get("department_id")
+    if dept_id:
+        department = Department.objects.filter(pk=dept_id).first()
+
+    # 1인 1병원 1후기 — 이미 있으면 수정(upsert)
+    review, created = HospitalReview.objects.update_or_create(
+        hospital=hospital,
+        user=request.user,
+        defaults={
+            "rating": vd["rating"],
+            "content": vd.get("content", ""),
+            "department": department,
+        },
+    )
+    return Response(
+        HospitalReviewSerializer(review, context={"request": request}).data,
+        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+    )
+
+
+@api_view(["DELETE"])
+@permission_classes([IsAuthenticated])
+def delete_review(request, pk):
+    """DELETE /api/reviews/<id>/ — 내 후기 삭제"""
+    deleted, _ = HospitalReview.objects.filter(pk=pk, user=request.user).delete()
+    if not deleted:
+        return Response({"detail": "후기를 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
+    return Response(status=status.HTTP_204_NO_CONTENT)
