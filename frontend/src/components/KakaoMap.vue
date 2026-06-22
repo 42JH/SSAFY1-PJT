@@ -18,6 +18,13 @@ import { nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 
 import { loadKakaoMaps } from '@/utils/kakaoLoader'
 
+
+import goldPin from './gold-pin.png'
+import silverPin from './silver-pin.png'
+import bronzePin from './bronze-pin.png'
+
+const RANK_MARKERS = [goldPin, silverPin, bronzePin]
+
 const props = defineProps({
   center: { type: Object, required: true }, // { lat, lng }
   level: { type: Number, default: 5 },
@@ -49,6 +56,10 @@ let resizeObserver = null
 // 상위 추천 메달 색 (1·2·3위)
 const MEDAL_COLORS = ['#f5b301', '#9aa5b1', '#c9762b']
 
+// 이 레벨 이상으로 축소되면 클러스터러가 마커를 묶음 개수로 표현한다.
+// 같은 기준으로 상위 숫자 배지도 숨겨야 묶음과 따로 떠 있지 않는다.
+const CLUSTER_MIN_LEVEL = 5
+
 onMounted(async () => {
   try {
     kakao = await loadKakaoMaps()
@@ -67,10 +78,12 @@ onMounted(async () => {
       clusterer = new kakao.maps.MarkerClusterer({
         map,
         averageCenter: true,
-        minLevel: 5,
+        minLevel: CLUSTER_MIN_LEVEL,
         disableClickZoom: false,
       })
     }
+    // 축소되어 마커가 묶이면 상위 숫자 배지도 함께 숨김
+    kakao.maps.event.addListener(map, 'zoom_changed', updateTopBadges)
     ready.value = true
     // 생성 직후 크기 재계산 — 타일 부분 렌더 방지
     map.relayout()
@@ -139,48 +152,110 @@ function openInfo(h, pos) {
 
 function renderMarkers() {
   clearMarkers()
+
   const bounds = new kakao.maps.LatLngBounds()
   let hasBounds = false
 
   const plainMarkers = []
+
   props.hospitals.forEach((h, idx) => {
     const pos = new kakao.maps.LatLng(h.latitude, h.longitude)
 
-    if (idx < props.highlightTop) {
-      // 상위 N곳: 메달 색 번호 뱃지 (클러스터에 묶이지 않고 항상 표시)
-      const el = document.createElement('div')
-      el.style.cssText =
-        `width:${34 - idx * 3}px;height:${34 - idx * 3}px;border-radius:50%;` +
-        `background:${MEDAL_COLORS[idx] ?? MEDAL_COLORS[2]};color:#fff;` +
-        'font-weight:800;font-size:15px;display:flex;align-items:center;justify-content:center;' +
-        'border:3px solid #fff;box-shadow:0 2px 8px rgba(0,0,0,.35);cursor:pointer;'
-      el.textContent = String(idx + 1)
-      el.title = h.name
-      el.addEventListener('click', () => openInfo(h, pos))
-      const overlay = new kakao.maps.CustomOverlay({ map, position: pos, content: el, zIndex: 10 })
-      topOverlays.push(overlay)
+    let marker
+
+    if (idx < 3) {
+      const markerImage = new kakao.maps.MarkerImage(
+        RANK_MARKERS[idx],
+        new kakao.maps.Size(32, 43),
+        {
+          offset: new kakao.maps.Point(16, 43),
+        }
+      )
+
+      marker = new kakao.maps.Marker({
+        position: pos,
+        title: h.name,
+        image: markerImage,
+      })
     } else {
-      const marker = new kakao.maps.Marker({ position: pos, title: h.name })
-      kakao.maps.event.addListener(marker, 'click', () => openInfo(h, pos))
-      plainMarkers.push(marker)
+      marker = new kakao.maps.Marker({
+        position: pos,
+        title: h.name,
+      })
     }
+
+    kakao.maps.event.addListener(marker, 'click', () => openInfo(h, pos))
+
+    plainMarkers.push(marker)
+
+    // 1~3등만 숫자 배지
+    if (idx < 3) {
+      const badge = document.createElement('div')
+
+      badge.style.cssText = `
+        width:24px;
+        height:24px;
+        background:${MEDAL_COLORS[idx]};
+        color:white;
+        border-radius:50%;
+        font-size:15px;
+        font-weight:bold;
+        display:flex;
+        align-items:center;
+        justify-content:center;
+        border:2px solid white;
+        box-shadow:0 2px 6px rgba(0,0,0,.3);
+      `
+
+      badge.textContent = String(idx + 1)
+
+      const overlay = new kakao.maps.CustomOverlay({
+        map,
+        position: pos,
+        content: badge,
+        yAnchor: 1.7,
+        zIndex: 20,
+      })
+
+      topOverlays.push(overlay)
+    }
+
     bounds.extend(pos)
     hasBounds = true
   })
 
-  // 일반 마커: 클러스터러가 있으면 묶어서, 없으면 개별 표시
   if (clusterer) {
     clusterer.addMarkers(plainMarkers)
   } else {
     plainMarkers.forEach((m) => m.setMap(map))
   }
+
   markers = plainMarkers
 
   if (props.userLocation) {
-    bounds.extend(new kakao.maps.LatLng(props.userLocation.lat, props.userLocation.lng))
+    bounds.extend(
+      new kakao.maps.LatLng(
+        props.userLocation.lat,
+        props.userLocation.lng
+      )
+    )
     hasBounds = true
   }
-  if (hasBounds && props.hospitals.length > 0) map.setBounds(bounds, 30)
+
+  if (hasBounds && props.hospitals.length > 0) {
+    map.setBounds(bounds, 30)
+  }
+
+  // setBounds로 정해진 현재 레벨 기준으로 배지 노출 여부 반영
+  updateTopBadges()
+}
+
+// 클러스터링되는 레벨(축소)에서는 상위 숫자 배지를 숨겨 묶음과 겹치지 않게 한다.
+// 핀 마커 자체는 클러스터러에 포함돼 묶음 개수에 이미 반영된다.
+function updateTopBadges() {
+  if (!map) return
+  const clustered = clusterer && map.getLevel() >= CLUSTER_MIN_LEVEL
+  topOverlays.forEach((o) => o.setMap(clustered ? null : map))
 }
 
 function renderPath() {

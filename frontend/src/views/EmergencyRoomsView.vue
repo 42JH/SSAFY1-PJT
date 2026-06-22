@@ -12,11 +12,40 @@
           🚨 생명이 위급하면 먼저 <strong>119</strong> · 전화하기
         </a>
 
+        <!-- 위치 기준 표시 + 변경 -->
         <div class="location-bar">
-          📍 {{ locationStore.label || '위치 확인 중' }} 기준 거리순
+          <span class="location-label">
+            📍 {{ locationStore.label || '위치 확인 중' }} 기준 거리순
+            <small v-if="locationStore.usingDefault">(위치 권한 없음 — 기본 위치)</small>
+          </span>
+          <button class="location-change-btn" @click="showPicker = !showPicker">
+            {{ showPicker ? '닫기' : '위치 변경' }}
+          </button>
         </div>
 
-        <div class="map-holder">
+        <!-- 위치 선택 패널 -->
+        <div v-if="showPicker" class="card picker-panel">
+          <p class="picker-title">주요 지점에서 선택</p>
+          <div class="preset-chips">
+            <button
+              v-for="p in LOCATION_PRESETS"
+              :key="p.label"
+              class="preset-chip"
+              :class="{ active: locationStore.label === p.label }"
+              @click="usePreset(p)"
+            >
+              {{ p.label }}
+            </button>
+          </div>
+          <div class="picker-actions">
+            <button class="picker-action" @click="retryGps">🛰️ 현재 위치 다시 찾기</button>
+            <button class="picker-action" :class="{ active: pickMode }" @click="pickMode = !pickMode">
+              {{ pickMode ? '🗺️ 지도를 클릭하세요...' : '🗺️ 지도에서 직접 선택' }}
+            </button>
+          </div>
+        </div>
+
+        <div class="map-holder" :class="{ picking: pickMode }">
           <KakaoMap
             v-if="locationStore.hasLocation"
             :center="{ lat: locationStore.lat, lng: locationStore.lng }"
@@ -24,7 +53,9 @@
             :user-location="{ lat: locationStore.lat, lng: locationStore.lng }"
             :show-detail-link="false"
             :highlight-top="3"
+            :path="route?.path ?? null"
             height="100%"
+            @map-click="onMapClick"
           />
         </div>
       </div>
@@ -64,8 +95,19 @@
                 <p class="er-addr">{{ c.address }}</p>
                 <div class="er-meta">
                   <span class="er-dist">📍 {{ c.distance_km }}km</span>
+                  <span v-if="route && routeCenterId === c.id" class="er-route">
+                    🚗 {{ (route.distance_m / 1000).toFixed(1) }}km · 약
+                    {{ Math.max(1, Math.round(route.duration_s / 60)) }}분
+                  </span>
                 </div>
                 <div class="er-actions">
+                  <button
+                    class="btn btn-outline btn-sm"
+                    :disabled="routeLoadingId === c.id"
+                    @click="findRoute(c)"
+                  >
+                    {{ routeLoadingId === c.id ? '경로 찾는 중...' : '🧭 길찾기' }}
+                  </button>
                   <a
                     v-if="c.er_phone || c.phone"
                     class="btn btn-danger btn-sm"
@@ -74,6 +116,9 @@
                     📞 응급실 {{ c.er_phone || c.phone }}
                   </a>
                 </div>
+                <p v-if="routeError && routeErrorId === c.id" class="er-route-error">
+                  {{ routeError }}
+                </p>
               </div>
             </li>
           </ul>
@@ -87,15 +132,26 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
-import { getEmergencyCenters } from '@/api/client'
+import { getDirections, getEmergencyCenters } from '@/api/client'
 import KakaoMap from '@/components/KakaoMap.vue'
-import { useLocationStore } from '@/stores/location'
+import { LOCATION_PRESETS, useLocationStore } from '@/stores/location'
 
 const router = useRouter()
 const locationStore = useLocationStore()
 
 const centers = ref([])
 const loading = ref(true)
+
+// 위치 변경 패널
+const showPicker = ref(false)
+const pickMode = ref(false)
+
+// 길찾기(인라인): 선택한 기관 한 곳의 경로를 지도에 표시
+const route = ref(null)
+const routeCenterId = ref(null)
+const routeLoadingId = ref(null)
+const routeError = ref('')
+const routeErrorId = ref(null)
 
 // KakaoMap은 병원 배열 형태를 받으므로 맞춰 변환
 const mapMarkers = computed(() =>
@@ -117,6 +173,8 @@ let seq = 0
 async function load() {
   const my = ++seq
   loading.value = true
+  // 위치가 바뀌면 이전 경로는 더 이상 유효하지 않으므로 지움
+  clearRoute()
   try {
     const { data } = await getEmergencyCenters({
       lat: locationStore.lat,
@@ -144,6 +202,61 @@ watch(
     if (locationStore.hasLocation) load()
   },
 )
+
+// --- 위치 변경 ---
+function usePreset(p) {
+  locationStore.setManualLocation(p.lat, p.lng, p.label)
+  showPicker.value = false
+  pickMode.value = false
+}
+
+async function retryGps() {
+  await locationStore.fetchLocation({ force: true })
+  showPicker.value = false
+}
+
+function onMapClick({ lat, lng }) {
+  if (!pickMode.value) return
+  locationStore.setManualLocation(lat, lng, '지도에서 선택')
+  pickMode.value = false
+  showPicker.value = false
+}
+
+// --- 길찾기 ---
+function clearRoute() {
+  route.value = null
+  routeCenterId.value = null
+  routeError.value = ''
+  routeErrorId.value = null
+}
+
+async function findRoute(c) {
+  // 같은 기관 길찾기를 다시 누르면 경로 숨김(토글)
+  if (routeCenterId.value === c.id) {
+    clearRoute()
+    return
+  }
+  routeLoadingId.value = c.id
+  routeError.value = ''
+  routeErrorId.value = null
+  try {
+    const { data } = await getDirections({
+      originLat: locationStore.lat,
+      originLng: locationStore.lng,
+      destLat: c.latitude,
+      destLng: c.longitude,
+    })
+    route.value = data
+    routeCenterId.value = c.id
+  } catch (err) {
+    route.value = null
+    routeCenterId.value = null
+    routeError.value = err.response?.data?.detail ?? '경로를 불러오지 못했어요.'
+    routeErrorId.value = c.id
+  } finally {
+    routeLoadingId.value = null
+  }
+}
 </script>
 
 <style scoped>
@@ -162,9 +275,87 @@ watch(
   font-size: 1.1em;
 }
 .location-bar {
-  font-size: 14px;
-  color: var(--text-muted, #6b7385);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   margin-bottom: 10px;
+}
+.location-label {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-muted, #6b7385);
+}
+.location-label small {
+  color: var(--text-sub);
+  font-weight: 400;
+}
+.location-change-btn {
+  border: 1px solid var(--primary);
+  background: var(--card);
+  color: var(--primary);
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 7px 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.picker-panel {
+  margin-bottom: 12px;
+  padding: 14px;
+}
+.picker-title {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-sub);
+  margin-bottom: 8px;
+}
+.preset-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.preset-chip {
+  padding: 8px 13px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+.preset-chip.active,
+.preset-chip:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+.picker-actions {
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.picker-action {
+  padding: 10px 8px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--text);
+}
+.picker-action.active {
+  border-color: var(--primary);
+  color: var(--primary);
+  background: var(--primary-light);
+}
+.picking {
+  outline: 2px dashed var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--radius);
 }
 .map-holder {
   height: 260px;
@@ -246,8 +437,20 @@ watch(
 .er-dist {
   color: #18a35a;
 }
+.er-route {
+  margin-left: 10px;
+  color: #2f6bff;
+}
 .er-actions {
   margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.er-route-error {
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--danger, #e5484d);
 }
 .btn-sm {
   padding: 7px 12px;
