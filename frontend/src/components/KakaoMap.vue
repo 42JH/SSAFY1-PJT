@@ -154,7 +154,9 @@ function renderMarkers() {
 
     let marker
 
-    if (idx < 3) {
+    // 상위 N곳만 메달 핀(금·은·동)으로 강조. highlightTop=0(상세 미니맵 등)이면
+    // 전부 기본 핀 — 병원 1곳짜리 지도에 '1등 gold'가 뜨는 이질감을 막는다.
+    if (idx < props.highlightTop && idx < RANK_MARKERS.length) {
       const markerImage = new kakao.maps.MarkerImage(
         RANK_MARKERS[idx],
         new kakao.maps.Size(32, 43),
