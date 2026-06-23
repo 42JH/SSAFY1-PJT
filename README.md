@@ -11,6 +11,8 @@
 | Backend | Django 4.2 + DRF |
 | Frontend | Vue 3 (Composition API) + Pinia + Vue Router |
 | 지도 | 카카오맵 JavaScript SDK (앱 내 임베드) |
+| 길찾기 | 카카오모빌리티 길찾기 REST API (백엔드 프록시) |
+| 인증 | JWT (djangorestframework-simplejwt) — 회원·건강 로그 |
 | DB | SQLite |
 | 거리 계산 | Haversine (Python) |
 
@@ -22,7 +24,7 @@
 cd backend
 .\venv\Scripts\Activate.ps1     # 최초 1회: python -m venv venv 후 pip install -r requirements.txt
 python manage.py migrate
-python manage.py seed_data       # 진료과(HIRA 코드 1:1)·키워드 사전 510개·응급 키워드·데모 병원
+python manage.py seed_data       # 진료과(HIRA 코드 1:1)·키워드 사전 511개·응급 키워드·데모 병원
 python manage.py runserver
 ```
 
@@ -56,10 +58,18 @@ npm run dev
 
 | Method | URL | 설명 |
 |---|---|---|
-| POST | `/api/recommend/` | 증상 텍스트 → 응급 분기 또는 진료과 1~3순위 추천 (근거 포함) |
+| POST | `/api/recommend/` | 증상 텍스트 → 응급 분기 또는 진료과 1~3순위 추천 (근거 포함, 로그인 시 검색 이력 저장) |
 | GET | `/api/departments/` | 진료과 목록 |
-| GET | `/api/hospitals/?lat=&lng=&department_id=&radius=` | 위치·진료과 기반 병원 추천 (Haversine 거리·반경 자동 확장) |
-| GET | `/api/hospitals/<id>/` | 병원 상세 |
+| GET | `/api/hospitals/?lat=&lng=&department_id=&radius=&open_only=` | 위치·진료과 기반 병원 추천 (Haversine 거리·평점 보정 정렬·반경 자동 확장) |
+| GET | `/api/hospitals/<id>/` | 병원 상세 (미니맵 좌표 + 후기 평점 요약) |
+| GET·POST | `/api/hospitals/<id>/reviews/` | 병원 후기 목록 / 작성·수정 (작성은 로그인 필수, 1인 1병원 1후기) |
+| DELETE | `/api/reviews/<id>/` | 내 후기 삭제 |
+| GET | `/api/emergency-centers/?lat=&lng=` | 가까운 응급의료기관 거리순 (E-Gen) |
+| GET | `/api/directions/?origin_lat=&origin_lng=&dest_lat=&dest_lng=` | 카카오모빌리티 자동차 길찾기 프록시 (경로 좌표·거리·소요시간) |
+| POST | `/api/auth/signup/` · `/api/auth/login/` · `/api/auth/refresh/` | 회원가입 / 로그인 / 토큰 갱신 (JWT) |
+| GET | `/api/auth/me/` | 내 정보 + 건강 로그 인사이트·최근 검색 이력 |
+| DELETE | `/api/auth/logs/<id>/` | 건강 로그 삭제 |
+| POST | `/api/auth/logs/<id>/feedback/` | 추천 평가(👍/👎) — 키워드 학습값 보정 |
 
 ### POST /api/recommend/ 응답 예시
 
@@ -77,17 +87,19 @@ npm run dev
 ## 핵심 로직
 
 1. **입력 정규화** — 공백 제거 + 동의어 치환 (부분일치 기반)
-2. **응급 검사** — `EmergencyKeyword` 우선 대조, 감지 시 119 안내로 강제 분기
+2. **응급 검사** — `EmergencyKeyword` 우선 대조, 감지 시 119 안내 + 가까운 응급의료기관(E-Gen) 거리순 안내로 강제 분기
 3. **사전 매칭** — `SymptomKeyword` 부분일치 → 진료과별 가중치 합산
-4. **랭킹** — 상위 1~3개 진료과 + 매칭 키워드(근거) 반환
-5. **폴백** — 매칭 0건 시 내과 우선 안내
-6. **병원 추천** — Haversine 거리 계산 → 영업중 우선·거리순 정렬, 결과 없으면 반경 자동 확장 (3km → 최대 20km)
+4. **피드백 보정** — 사용자 추천 평가(👍/👎)로 누적된 `KeywordFeedback`를 진료과별로 가산 (±5로 클램프, 소수 표가 운영자 사전을 못 뒤집음)
+5. **랭킹** — 상위 1~3개 진료과 + 매칭 키워드(근거) 반환 (구어체 토큰은 표시용 증상명 `label`로 노출)
+6. **폴백** — 매칭 0건 시 내과 우선 안내
+7. **병원 추천** — Haversine 거리 계산 → 영업중 우선·평점 보정 거리순 정렬(후기 베이즈 평균), 결과 없으면 반경 자동 확장 (3km → 최대 20km)
 
 ## 화면 흐름
 
 ```
-홈 → 증상 입력 → [추천 로딩] → (일반) 진료과 추천 결과 / (응급) 응급 안내
-진료과 카드 선택 → 병원 리스트+지도 → 병원 상세(미니맵) → 전화/위치 확인
+홈 → 증상 입력 → [추천 로딩] → (일반) 진료과 추천 결과 / (응급) 응급 안내 → 가까운 응급실 거리순
+진료과 카드 선택 → 병원 리스트+지도 → 병원 상세(미니맵·진료시간·후기) → 앱 내 길찾기 / 전화 / 위치 확인
+(선택) 로그인 → 마이페이지: 건강 로그(검색 이력·추천 평가)·인사이트 요약
 ```
 
 ## 관리 (Django Admin)
