@@ -103,7 +103,7 @@ class SymptomLogAdmin(admin.ModelAdmin):
 
 @admin.register(KeywordFeedback)
 class KeywordFeedbackAdmin(admin.ModelAdmin):
-    """추천 자가학습 결과 — 키워드→진료과 보정 점수를 모니터링/초기화"""
+    """추천 피드백 보정값 — 키워드→진료과 보정 점수를 모니터링/초기화 (👍👎 누적, ML 학습 아님)"""
 
     list_display = ("id", "keyword", "department", "score", "updated_at")
     list_filter = ("department",)

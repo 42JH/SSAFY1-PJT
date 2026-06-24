@@ -10,7 +10,7 @@
   - 증상 검색 건수 / 추천 평가(👍/👎) 수와 만족도 비율
   - 병원 후기 수 / 평균 별점
   - 최다 추천 진료과 Top N
-  - 학습된 추천 보정값(KeywordFeedback) 변동 상위
+  - 피드백 보정값(KeywordFeedback) 변동 상위 (👍👎 누적 — 규칙 기반 보정, ML 학습 아님)
 """
 from datetime import datetime
 
@@ -50,6 +50,9 @@ class Command(BaseCommand):
         if since:
             logs = logs.filter(searched_at__gte=since)
         search_total = logs.count()
+        # 추천 출처: 규칙 사전 매칭 vs 규칙 0건 시 AI 진료과 추론 폴백이 구제한 검색
+        ai_rescued = logs.filter(source="ai").count()
+        ai_rescue_rate = (ai_rescued / search_total * 100) if search_total else 0.0
         rated = logs.exclude(feedback__isnull=True)
         rated_total = rated.count()
         up = rated.filter(feedback=1).count()
@@ -75,7 +78,7 @@ class Command(BaseCommand):
             .order_by("-n")[:top]
         )
 
-        # --- 학습된 추천 보정값 (전 기간 누적 — 기간 필터 무의미) ---
+        # --- 피드백 보정값 (전 기간 누적 — 기간 필터 무의미) ---
         learned = (
             KeywordFeedback.objects.exclude(score=0)
             .order_by("-score")[:top]
@@ -98,6 +101,8 @@ class Command(BaseCommand):
 
         out(H("증상 검색 / 추천 평가"))
         out(f"- 증상 검색 건수: **{search_total}건**" if md else f"증상 검색 건수: {search_total}건")
+        out(f"- AI가 구제한 검색(규칙 0건→AI 추론): **{ai_rescued}건** ({ai_rescue_rate:.1f}%)" if md
+            else f"AI가 구제한 검색(규칙 0건→AI 추론): {ai_rescued}건 ({ai_rescue_rate:.1f}%)")
         out(f"- 추천 평가 수: **{rated_total}건** (👍 {up} / 👎 {down})" if md
             else f"추천 평가 수: {rated_total}건 (👍 {up} / 👎 {down})")
         out(f"- 추천 만족도(👍 비율): **{satisfaction:.1f}%**" if md
@@ -120,12 +125,12 @@ class Command(BaseCommand):
                 line = f"{i}. {r['hospital__name']} — {r['n']}건 (평균 ★{r['avg']:.1f})"
                 out(f"- {line}" if md else f"  {line}")
 
-        out(H(f"추천 학습 보정값 변동 Top {top} (👍👎로 학습된 결과)"))
+        out(H(f"추천 피드백 보정값 변동 Top {top} (👍👎 누적 반영)"))
         if learned:
             for i, k in enumerate(learned, 1):
                 line = f"{k.keyword} → {k.department.name} ({k.score:+d})"
                 out(f"- {line}" if md else f"  {line}")
         else:
-            out("- (아직 학습된 보정값 없음)" if md else "  (아직 학습된 보정값 없음)")
+            out("- (아직 피드백 보정값 없음)" if md else "  (아직 피드백 보정값 없음)")
 
         out("" if md else "\n########## 끝 ##########")

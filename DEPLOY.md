@@ -112,10 +112,10 @@ venv\Scripts\python manage.py metrics --since 2026-06-23 --md > ..\METRICS_RESUL
 
 집계 항목 (`backend/api/management/commands/metrics.py`):
 - 총 가입자 수 / 수집 기간 신규 가입
-- 증상 검색 건수, 추천 평가 수(👍/👎), **추천 만족도(👍 비율)**
+- 증상 검색 건수, **AI가 구제한 검색(규칙 0건→AI 추론) 건수·비율**, 추천 평가 수(👍/👎), **추천 만족도(👍 비율)**
 - 최다 추천 진료과 Top N
 - 병원 후기 수 / 평균 별점 / 후기 많은 병원 Top N
-- 👍👎로 학습된 추천 보정값(KeywordFeedback) 변동 Top N
+- 👍👎 누적 피드백 보정값(KeywordFeedback) 변동 Top N
 
 ---
 

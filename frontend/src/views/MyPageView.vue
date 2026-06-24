@@ -127,7 +127,7 @@ async function vote(log, value) {
   }
 }
 
-// 이 증상으로 추천 흐름을 다시 실행 (학습된 가중치가 반영된 최신 추천)
+// 이 증상으로 추천 흐름을 다시 실행 (피드백 보정이 반영된 최신 추천)
 async function research(log) {
   try {
     const data = await recommend.submitSymptom(log.symptom_text)

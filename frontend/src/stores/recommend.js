@@ -14,6 +14,7 @@ export const useRecommendStore = defineStore('recommend', {
     results: [],
     fallback: false,
     fallbackMessage: '',
+    source: 'rule', // 'rule'=규칙 사전 매칭, 'ai'=규칙 0건 시 LLM 진료과 추론 폴백
     // 선택된 진료과 (병원 추천으로 이동 시)
     selectedDepartment: null,
   }),
@@ -29,6 +30,7 @@ export const useRecommendStore = defineStore('recommend', {
         this.results = data.results ?? []
         this.fallback = data.fallback ?? false
         this.fallbackMessage = data.message ?? ''
+        this.source = data.source ?? 'rule'
         return data
       } catch (err) {
         this.error = '추천 요청에 실패했습니다. 잠시 후 다시 시도해 주세요.'

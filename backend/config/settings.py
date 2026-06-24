@@ -108,8 +108,12 @@ SIMPLE_JWT = {
 # --- 외부 API 키 (backend/.env 에서 로드) ---
 KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "")  # 카카오모빌리티 길찾기
 HIRA_SERVICE_KEY = os.environ.get("HIRA_SERVICE_KEY", "")      # 심평원 병원정보 (import_hira)
+HIRA_DISEASE_SERVICE_KEY = os.environ.get("HIRA_DISEASE_SERVICE_KEY", "")  # 심평원 질병정보 (import_disease)
 EGEN_SERVICE_KEY = os.environ.get("EGEN_SERVICE_KEY", "")      # E-Gen 응급의료기관 (import_emergency)
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")    # 증상 키워드 후보 생성 (generate_keywords)
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")    # 키워드 후보 생성(generate_keywords) + 런타임 진료과 추론 폴백
+# 런타임 진료과 추론 폴백(services.classify_symptom_with_ai)에 쓰는 모델.
+# 지연 최소화를 위해 빠른 haiku를 기본값으로 둔다(키워드 생성은 opus 유지).
+RECOMMEND_AI_MODEL = os.environ.get("RECOMMEND_AI_MODEL", "claude-haiku-4-5")
 
 # --- CORS (개발용: Vite dev server 허용) ---
 CORS_ALLOWED_ORIGINS = [

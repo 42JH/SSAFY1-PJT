@@ -69,7 +69,7 @@ npm run dev
 | POST | `/api/auth/signup/` · `/api/auth/login/` · `/api/auth/refresh/` | 회원가입 / 로그인 / 토큰 갱신 (JWT) |
 | GET | `/api/auth/me/` | 내 정보 + 건강 로그 인사이트·최근 검색 이력 |
 | DELETE | `/api/auth/logs/<id>/` | 건강 로그 삭제 |
-| POST | `/api/auth/logs/<id>/feedback/` | 추천 평가(👍/👎) — 키워드 학습값 보정 |
+| POST | `/api/auth/logs/<id>/feedback/` | 추천 평가(👍/👎) — 키워드 피드백 보정값 반영 |
 
 ### POST /api/recommend/ 응답 예시
 

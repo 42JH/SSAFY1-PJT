@@ -105,8 +105,8 @@ def recommend_departments(symptom_text: str, top_n: int = 3):
             dept_names[sk.department_id] = sk.department.name
             matched_norm.add(kw_norm)
 
-    # 사용자 추천 평가(👍/👎) 학습 보정: 매칭 키워드의 피드백을 진료과별로 합산해
-    # ±FEEDBACK_CAP로 클램프 후 가산. 👍/👎는 기존 후보 과의 순위만 조정한다.
+    # 사용자 추천 평가(👍/👎) 피드백 보정(ML 학습 아님): 매칭 키워드의 피드백을 진료과별로
+    # 합산해 ±FEEDBACK_CAP로 클램프 후 가산. 👍/👎는 기존 후보 과의 순위만 조정한다.
     if matched_norm and dept_scores:
         fb_by_dept = defaultdict(int)
         for fb in KeywordFeedback.objects.filter(keyword__in=matched_norm):
@@ -138,7 +138,7 @@ def apply_recommendation_feedback(symptom_text: str, dept_name: str, delta: int)
         return
     dept = Department.objects.filter(name=dept_name).first()
     if dept is None:
-        return  # 폴백("(매칭 없음)" 등)이거나 삭제된 진료과 → 학습 대상 아님
+        return  # 폴백("(매칭 없음)" 등)이거나 삭제된 진료과 → 보정 대상 아님
 
     norm = normalize(symptom_text)
     for sk in SymptomKeyword.objects.filter(department=dept):
@@ -147,6 +147,85 @@ def apply_recommendation_feedback(symptom_text: str, dept_name: str, delta: int)
             fb, _ = KeywordFeedback.objects.get_or_create(keyword=kw_norm, department=dept)
             fb.score += delta
             fb.save(update_fields=["score", "updated_at"])
+
+
+# ── AI 폴백: 규칙 사전이 못 잡는 증상을 LLM이 진료과로 직접 추론 ──
+#
+# recommend_departments(규칙)가 0건일 때만 호출된다. 사전에 잡히는 일반 케이스는 LLM을
+# 거치지 않아 비용·지연을 통제한다. 응급은 호출 전 check_emergency로 1차 필터되며, LLM이
+# 응급을 의심하면 is_emergency=True로 2차 안전망을 제공한다. 키 부재·네트워크 오류·무효
+# 응답은 모두 None을 반환해, 호출부가 기존 내과 폴백으로 안전하게 착지하도록 한다.
+
+def classify_symptom_with_ai(symptom_text: str, model: str = None):
+    """규칙 매칭 실패 시 Claude로 진료과를 추론. 실패하면 None(=호출부 기존 폴백).
+
+    반환:
+      - {"is_emergency": True}                         응급 의심 → 호출부가 119 분기
+      - {"is_emergency": False, "department_id", "department", "reason", "confidence"}
+      - None                                            키 없음·오류·환각(목록 밖 진료과)
+    """
+    from django.conf import settings
+
+    api_key = settings.ANTHROPIC_API_KEY
+    if not api_key:
+        return None
+    try:
+        import anthropic
+        from pydantic import BaseModel
+    except ImportError:
+        return None
+
+    departments = list(Department.objects.all())
+    if not departments:
+        return None
+    dept_by_name = {d.name: d for d in departments}
+    dept_lines = "\n".join(
+        f"- {d.name}: {d.description or '(설명 없음)'}" for d in departments
+    )
+
+    class AIClassification(BaseModel):
+        department: str   # 반드시 아래 목록에 있는 진료과명
+        reason: str       # 환자가 이해할 한국어 한 문장 근거
+        is_emergency: bool
+        confidence: float  # 0~1
+
+    system = (
+        "너는 한국 1차 의료 진료과 안내 도우미다. 환자의 증상 설명을 읽고 주어진 진료과 "
+        "목록 중 가장 적합한 단 하나를 고른다. 반드시 목록에 있는 진료과명을 그대로 써라"
+        "(새 이름을 만들지 마라). 생명을 위협하는 응급 징후(의식소실·심한 호흡곤란·가슴을 "
+        "쥐어짜는 통증·대량 출혈·갑작스러운 마비 등)가 의심되면 is_emergency=true로 표시하라. "
+        "reason은 왜 그 진료과인지 환자가 이해할 한국어 한 문장으로 적어라."
+    )
+    prompt = (
+        f"증상 설명: {symptom_text}\n\n"
+        f"진료과 목록:\n{dept_lines}\n\n"
+        "위 목록에서 가장 적합한 진료과 하나를 선택하라."
+    )
+    try:
+        client = anthropic.Anthropic(api_key=api_key, timeout=8.0)
+        resp = client.messages.parse(
+            model=model or settings.RECOMMEND_AI_MODEL,
+            max_tokens=1000,
+            system=system,
+            messages=[{"role": "user", "content": prompt}],
+            output_format=AIClassification,
+        )
+    except Exception:
+        return None  # 네트워크·타임아웃·인증 등 모든 런타임 오류 → 안전 폴백
+
+    out = resp.parsed_output
+    if out.is_emergency:
+        return {"is_emergency": True}
+    dept = dept_by_name.get(out.department.strip())
+    if dept is None:
+        return None  # 목록 밖 진료과(환각) → 폐기
+    return {
+        "is_emergency": False,
+        "department_id": dept.id,
+        "department": dept.name,
+        "reason": out.reason.strip(),
+        "confidence": round(max(0.0, min(1.0, out.confidence)), 2),
+    }
 
 
 # ── 병원 추천: Haversine 거리 · 영업상태 · 반경 확장 · 평점 보정 ──

@@ -34,6 +34,12 @@
           입력하신 증상은<br />아래 진료과와 관련 있을 수 있어요
         </h2>
 
+        <!-- AI 추론 안내: 규칙 사전에 없는 표현이라 AI가 진료과를 추론한 경우 -->
+        <div v-if="store.source === 'ai'" class="ai-notice card">
+          <span class="ai-chip">✨ AI 추론</span>
+          <p>사전에 등록된 키워드로는 매칭되지 않아, AI가 증상을 분석해 진료과를 추천했어요.</p>
+        </div>
+
         <div class="result-list">
           <button
             v-for="(r, i) in store.results"
@@ -43,10 +49,16 @@
           >
             <div class="rank-row">
               <span class="rank-badge" :class="{ top: i === 0 }">{{ i + 1 }}순위</span>
-              <span class="score">매칭 점수 {{ r.score }}</span>
+              <span v-if="r.score !== null" class="score">매칭 점수 {{ r.score }}</span>
+              <span v-else class="score score-ai">✨ AI 추론</span>
             </div>
             <div class="dept-name">{{ r.department }}</div>
-            <div class="keywords">
+            <!-- AI 추론: 근거 문장 / 규칙 매칭: 키워드 태그 -->
+            <div v-if="r.ai_reason" class="keywords">
+              <span class="reason-label">추천 근거</span>
+              <span class="ai-reason">{{ r.ai_reason }}</span>
+            </div>
+            <div v-else class="keywords">
               <span class="reason-label">추천 근거</span>
               <span v-for="kw in r.matched_keywords" :key="kw" class="tag tag-blue">
                 {{ kw }}
@@ -150,6 +162,35 @@ function goFallbackHospitals() {
 .score {
   font-size: 12px;
   color: var(--text-sub);
+}
+.score-ai {
+  color: var(--primary);
+  font-weight: 700;
+}
+.ai-notice {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: #f3f0ff;
+  border: 1px solid #ddd2ff;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text);
+}
+.ai-chip {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 700;
+  color: #6b3fd6;
+  background: #e7deff;
+  padding: 3px 9px;
+  border-radius: 999px;
+}
+.ai-reason {
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--text);
 }
 .dept-name {
   margin-top: 10px;

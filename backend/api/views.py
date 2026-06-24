@@ -21,10 +21,13 @@ from .serializers import (
 from .services import (
     bayesian_rating,
     check_emergency,
+    classify_symptom_with_ai,
     find_emergency_centers,
     find_hospitals,
     recommend_departments,
 )
+
+EMERGENCY_MESSAGE = "응급 상황일 수 있습니다. 즉시 119에 연락하세요."
 
 
 def _global_mean_rating(default: float = 0.0) -> float:
@@ -44,17 +47,41 @@ def recommend(request):
     serializer.is_valid(raise_exception=True)
     symptom_text = serializer.validated_data["symptom_text"]
 
-    # ② 응급 검사: 하나라도 걸리면 추천을 건너뛰고 119 안내로 강제 분기
+    # ② 응급 검사(규칙): 하나라도 걸리면 추천을 건너뛰고 119 안내로 강제 분기
     emergency_matches = check_emergency(symptom_text)
     if emergency_matches:
         return Response({
             "emergency": True,
             "matched_keywords": emergency_matches,
-            "message": "응급 상황일 수 있습니다. 즉시 119에 연락하세요.",
+            "message": EMERGENCY_MESSAGE,
         })
 
-    # ③~⑤ 사전 매칭 → 점수 합산 → 랭킹
+    # ③~⑤ 사전 매칭(규칙) → 점수 합산 → 랭킹
     results = recommend_departments(symptom_text)
+    source = "rule"
+
+    # ⑥ 규칙 매칭 0건 → AI 진료과 추론으로 구제 (사전에 없는 구어체·비정형 표현 대응).
+    # 일반 케이스는 여기까지 오지 않으므로 LLM 비용·지연이 통제된다.
+    if not results:
+        ai = classify_symptom_with_ai(symptom_text)
+        if ai and ai.get("is_emergency"):
+            # AI 2차 안전망: 규칙 응급사전이 놓친 응급 징후 감지 → 119 분기
+            return Response({
+                "emergency": True,
+                "matched_keywords": [],
+                "message": EMERGENCY_MESSAGE,
+                "source": "ai",
+            })
+        if ai:
+            source = "ai"
+            results = [{
+                "department_id": ai["department_id"],
+                "department": ai["department"],
+                "score": None,                 # 규칙 점수가 아닌 AI 추론 → 점수 없음
+                "matched_keywords": [],
+                "ai_reason": ai["reason"],
+                "confidence": ai["confidence"],
+            }]
 
     # F09 건강 로그: 로그인 사용자의 검색 이력 저장 (게스트는 저장 안 함)
     if request.user.is_authenticated:
@@ -62,22 +89,25 @@ def recommend(request):
             user=request.user,
             symptom_text=symptom_text,
             recommended_dept=results[0]["department"] if results else "(매칭 없음)",
-            score=results[0]["score"] if results else 0,
+            score=results[0].get("score") or 0,
+            source=source,
         )
 
-    # ⑥ 폴백: 매칭 0건
+    # 규칙·AI 모두 실패 → 내과 우선 안내 폴백
     if not results:
         return Response({
             "emergency": False,
             "results": [],
             "fallback": True,
             "message": FALLBACK_MESSAGE,
+            "source": source,
         })
 
     return Response({
         "emergency": False,
         "results": results,
         "fallback": False,
+        "source": source,
     })
 
 

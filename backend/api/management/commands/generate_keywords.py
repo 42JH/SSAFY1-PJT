@@ -75,7 +75,12 @@ class Command(BaseCommand):
         out_path = Path(options["out"])
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        total = 0
+        # 전처리 퍼널 집계: LLM 생성 → 자동 필터(중복·응급 제외) → 기록.
+        # 사람 검수(생성 → 검수 → seed) 앞단의 '자동 정제' 단계를 정량화한다.
+        gen_raw = 0       # LLM이 생성한 원시 항목 수
+        skip_dup = 0      # 기존 사전/같은 실행 중복으로 탈락
+        skip_emergency = 0  # 응급 키워드와 겹쳐 탈락
+        total = 0         # 검수 후보로 기록된 수
         with out_path.open("w", encoding="utf-8-sig", newline="") as f:
             writer = csv.writer(f)
             writer.writerow(["keyword", "department", "weight", "label", "approved"])
@@ -107,14 +112,25 @@ class Command(BaseCommand):
 
                 for item in resp.parsed_output.items:
                     kw = item.keyword.strip()
-                    if not kw or kw in existing or kw in emergency:
+                    gen_raw += 1
+                    if not kw or kw in existing:
+                        skip_dup += 1
+                        continue
+                    if kw in emergency:
+                        skip_emergency += 1
                         continue
                     existing.add(kw)  # 같은 실행 내 중복도 방지
                     weight = max(1, min(3, item.weight))
                     writer.writerow([kw, dept.name, weight, item.label.strip(), ""])
                     total += 1
 
+        # 전처리 퍼널 요약 (생성 → 자동 필터 → 검수 후보)
+        kept_rate = (total / gen_raw * 100) if gen_raw else 0.0
         self.stdout.write(self.style.SUCCESS(
-            f"후보 {total}개 생성 → {out_path}\n"
-            f"검수 후 좋은 행을 data/keywords_approved.csv 로 옮기고 'manage.py seed_data' 를 실행하세요."
+            f"\n=== 전처리 퍼널 ===\n"
+            f"  LLM 생성(raw): {gen_raw}개\n"
+            f"  자동 필터 탈락: 중복 {skip_dup} + 응급겹침 {skip_emergency} = {skip_dup + skip_emergency}개\n"
+            f"  검수 후보 기록: {total}개 (자동필터 통과율 {kept_rate:.1f}%)\n"
+            f"→ {out_path}\n"
+            f"이제 사람이 검수해 좋은 행을 data/keywords_approved.csv 로 옮기고 'manage.py seed_data' 실행."
         ))

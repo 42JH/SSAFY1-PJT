@@ -114,7 +114,7 @@ def me(request):
 def log_feedback(request, pk):
     """POST /api/auth/logs/<id>/feedback/  {value: 1|-1|0}
 
-    추천 결과 평가(👍=1 / 👎=-1 / 0=평가 취소). 직전 평가와의 차이만큼 키워드 학습값에
+    추천 결과 평가(👍=1 / 👎=-1 / 0=평가 취소). 직전 평가와의 차이만큼 키워드 피드백 보정값에
     반영하므로 같은 로그를 여러 번 눌러도 중복 가산되지 않는다.
     """
     try:
@@ -131,7 +131,7 @@ def log_feedback(request, pk):
         return Response({"detail": "이력을 찾을 수 없습니다."}, status=status.HTTP_404_NOT_FOUND)
 
     old = log.feedback or 0
-    delta = value - old  # 이전 평가 대비 순변화만 학습값에 반영
+    delta = value - old  # 이전 평가 대비 순변화만 보정값에 반영
     apply_recommendation_feedback(log.symptom_text, log.recommended_dept, delta)
 
     log.feedback = value or None

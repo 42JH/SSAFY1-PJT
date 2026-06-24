@@ -175,7 +175,10 @@ class SymptomLog(models.Model):
     symptom_text = models.CharField("증상 입력", max_length=300)
     recommended_dept = models.CharField("추천 진료과", max_length=50)
     score = models.PositiveIntegerField("점수", default=0)
-    # 추천 결과 평가: 1=도움됨(👍), -1=아님(👎), null=미평가. KeywordFeedback 학습의 입력원.
+    # 추천 출처: rule=규칙 사전 매칭, ai=규칙 0건 시 LLM 진료과 추론 폴백.
+    # metrics에서 "AI가 구제한 검색 건수" 집계의 입력원.
+    source = models.CharField("추천 출처", max_length=10, default="rule")
+    # 추천 결과 평가: 1=도움됨(👍), -1=아님(👎), null=미평가. KeywordFeedback 보정의 입력원.
     feedback = models.SmallIntegerField("추천 평가", null=True, blank=True)
     searched_at = models.DateTimeField("검색 일시", auto_now_add=True)
 
@@ -189,7 +192,7 @@ class SymptomLog(models.Model):
 
 
 class KeywordFeedback(models.Model):
-    """사용자 추천 평가(👍/👎)로 학습되는 (키워드→진료과) 보정 점수.
+    """사용자 추천 평가(👍/👎)로 누적되는 (키워드→진료과) 피드백 보정 점수 (ML 학습 아님).
 
     운영자가 관리하는 SymptomKeyword.weight는 그대로 두고, 이 레이어를 추천 점수에
     덧씌운다(services.recommend_departments). score는 누적 순투표(👍 +1 / 👎 -1)이며,
@@ -207,8 +210,8 @@ class KeywordFeedback(models.Model):
     updated_at = models.DateTimeField("수정 일시", auto_now=True)
 
     class Meta:
-        verbose_name = "추천 피드백 학습값"
-        verbose_name_plural = "추천 피드백 학습값"
+        verbose_name = "추천 피드백 보정값"
+        verbose_name_plural = "추천 피드백 보정값"
         unique_together = [("keyword", "department")]
 
     def __str__(self):

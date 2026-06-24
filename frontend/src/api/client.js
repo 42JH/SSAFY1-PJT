@@ -103,7 +103,7 @@ export function deleteHospitalReview(reviewId) {
   return client.delete(`/reviews/${reviewId}/`)
 }
 
-/** 추천 결과 평가 (👍=1 / 👎=-1 / 0=취소). 키워드→진료과 추천을 자가학습시킴 */
+/** 추천 결과 평가 (👍=1 / 👎=-1 / 0=취소). 키워드→진료과 피드백 보정값에 반영 */
 export function sendLogFeedback(logId, value) {
   return client.post(`/auth/logs/${logId}/feedback/`, { value })
 }
