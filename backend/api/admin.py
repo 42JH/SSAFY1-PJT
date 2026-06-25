@@ -79,9 +79,11 @@ class SymptomKeywordAdmin(admin.ModelAdmin):
 
 @admin.register(EmergencyKeyword)
 class EmergencyKeywordAdmin(admin.ModelAdmin):
-    list_display = ("id", "keyword", "category")
+    # label = 화면 노출용 표준 증상명(어간 keyword는 매칭용). 목록에서 바로 수정 가능.
+    list_display = ("id", "keyword", "label", "category")
+    list_editable = ("label", "category")
     list_filter = ("category",)
-    search_fields = ("keyword",)
+    search_fields = ("keyword", "label")
 
 
 @admin.register(HospitalReview)

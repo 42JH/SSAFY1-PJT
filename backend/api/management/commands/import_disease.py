@@ -31,6 +31,13 @@ BASE_URL = "https://apis.data.go.kr/B551182/diseaseInfoService1/getDissNameCodeL
 NUM_OF_ROWS = 100
 TIMEOUT = 40
 MAX_RETRY = 5
+
+# 이 엔드포인트는 빈 조건으로는 totalCount=0을 반환한다. 아래 필수 파라미터를 줘야
+# 전체 KCD 목록이 나온다. sickType=1(질병), medTp=1(양방)·2(한방), diseaseType=정렬/검색 기준.
+# 병원 진료과 추천 용도이므로 기본값은 양방(medTp=1).
+SICK_TYPE = "1"
+MED_TP = "1"
+DISEASE_TYPE = "SICK_NM"
 OUT_PATH = Path(__file__).resolve().parent.parent.parent / "data" / "disease_codes.csv"
 
 # 응답 필드명을 모르는 채로 적재해도 깨지지 않도록, 코드/이름 컬럼을 휴리스틱으로 탐지한다.
@@ -50,6 +57,7 @@ class Command(BaseCommand):
         """한 페이지를 JSON으로 받는다. resultCode 99(서버 장애)는 재시도 대상."""
         qs = urllib.parse.urlencode({
             "serviceKey": key, "pageNo": page, "numOfRows": rows, "_type": "json",
+            "sickType": SICK_TYPE, "medTp": MED_TP, "diseaseType": DISEASE_TYPE,
         })
         req = urllib.request.Request(f"{BASE_URL}?{qs}", headers={"User-Agent": "Mozilla/5.0"})
         last = None

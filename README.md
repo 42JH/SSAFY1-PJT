@@ -24,7 +24,7 @@
 cd backend
 .\venv\Scripts\Activate.ps1     # 최초 1회: python -m venv venv 후 pip install -r requirements.txt
 python manage.py migrate
-python manage.py seed_data       # 진료과(HIRA 코드 1:1)·키워드 사전 511개·응급 키워드·데모 병원
+python manage.py seed_data       # 진료과(HIRA 코드 1:1)·키워드 사전 5,253개(기본+AI전처리 검수분)·응급 키워드·데모 병원
 python manage.py runserver
 ```
 
@@ -77,8 +77,11 @@ npm run dev
 // 일반
 {"emergency": false, "results": [{"department_id": 2, "department": "이비인후과", "score": 6, "matched_keywords": ["콧물", "인후통"]}], "fallback": false}
 
-// 응급
-{"emergency": true, "matched_keywords": [{"keyword": "가슴통증", "category": "심혈관계"}], "message": "응급 상황일 수 있습니다. 즉시 119에 연락하세요."}
+// 응급 (keyword=매칭 어간, label=화면 표시용 증상명)
+{"emergency": true, "matched_keywords": [{"keyword": "가슴통증", "label": "가슴 통증", "category": "심혈관계"}], "message": "응급 상황일 수 있습니다. 즉시 119에 연락하세요."}
+
+// AI 추론 (규칙 0건 → 런타임 Claude 추론, source=ai)
+{"emergency": false, "source": "ai", "results": [{"department_id": 5, "department": "안과", "score": null, "matched_keywords": [], "ai_reason": "복시·초점 조절 장애는 눈의 질환 가능성", "confidence": 0.8}]}
 
 // 폴백 (매칭 0건)
 {"emergency": false, "results": [], "fallback": true, "message": "정확한 추천이 어렵습니다. 가까운 내과를 먼저 방문해 보세요."}
@@ -88,10 +91,10 @@ npm run dev
 
 1. **입력 정규화** — 공백 제거 + 동의어 치환 (부분일치 기반)
 2. **응급 검사** — `EmergencyKeyword` 우선 대조, 감지 시 119 안내 + 가까운 응급의료기관(E-Gen) 거리순 안내로 강제 분기
-3. **사전 매칭** — `SymptomKeyword` 부분일치 → 진료과별 가중치 합산
+3. **사전 매칭** — `SymptomKeyword`(5,253개, 기본+AI 전처리 검수분) 부분일치 → 진료과별 가중치 합산
 4. **피드백 보정** — 사용자 추천 평가(👍/👎)로 누적된 `KeywordFeedback`를 진료과별로 가산 (±5로 클램프, 소수 표가 운영자 사전을 못 뒤집음)
 5. **랭킹** — 상위 1~3개 진료과 + 매칭 키워드(근거) 반환 (구어체 토큰은 표시용 증상명 `label`로 노출)
-6. **폴백** — 매칭 0건 시 내과 우선 안내
+6. **AI 폴백** — 규칙 매칭 0건일 때만 런타임 Claude가 진료과 추론(근거 문장 포함, 응급 의심 시 119 2차 분기). AI까지 실패하면 내과 우선 안내 — 어떤 경우에도 빈 화면 없음
 7. **병원 추천** — Haversine 거리 계산 → 영업중 우선·평점 보정 거리순 정렬(후기 베이즈 평균), 결과 없으면 반경 자동 확장 (3km → 최대 20km)
 
 ## 화면 흐름
@@ -111,3 +114,13 @@ cd backend
 python manage.py createsuperuser
 # http://127.0.0.1:8000/admin/
 ```
+
+## 향후 확장 (배포 — 미완)
+
+정식 클라우드 배포는 미진행(포트폴리오용 후속 과제). 발표 기간엔 노트북 + 임시 터널로 운영했고, 영구 배포 시 고려사항:
+
+- 프론트(정적 `dist/`) → Cloudflare Pages / Vercel (무료·영구 HTTPS 도메인, 카카오 콘솔에 1회 등록)
+- 백엔드(Django) → Railway / Render / Fly 무료 티어 (정부 외부 API 호출 가능 호스트)
+- DB → 영구 볼륨에 `db.sqlite3` 두거나 PostgreSQL 이전
+- **제약**: ① `navigator.geolocation`은 HTTPS 필수 ② 카카오맵은 도메인 화이트리스트 등록 필수 ③ 프론트/백엔드 도메인이 갈리면 `CORS_ALLOWED_ORIGINS`에 프론트 도메인 추가
+- 트러블슈팅(터널·HTTPS·Host 차단)은 `TROUBLESHOOTING.md` D절 참고

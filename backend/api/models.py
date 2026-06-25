@@ -108,7 +108,16 @@ class EmergencyKeyword(models.Model):
     """응급 강제 분기용 고위험 증상어 목록."""
 
     keyword = models.CharField("응급 키워드", max_length=50, unique=True)
+    # 화면(응급 신호)에 보여줄 표준 증상명. 비우면 keyword를 그대로 표시.
+    # 매칭은 활용형 대응을 위해 어간("피를토"·"쓰러졌")으로 하되, 노출은 깔끔한 이름
+    # ("토혈"·"쓰러짐")으로 한다 — SymptomKeyword.label과 동일한 의도.
+    label = models.CharField("표시용 증상명", max_length=50, blank=True)
     category = models.CharField("분류", max_length=30, blank=True)
+
+    @property
+    def display_name(self) -> str:
+        """응급 신호에 노출할 이름 — label이 있으면 label, 없으면 keyword."""
+        return self.label or self.keyword
 
     class Meta:
         verbose_name = "응급 키워드"

@@ -19,7 +19,7 @@
         <p class="keyword-title">감지된 응급 신호</p>
         <div class="keyword-tags">
           <span v-for="k in store.emergencyKeywords" :key="k.keyword" class="tag tag-red">
-            {{ k.keyword }}<template v-if="k.category"> · {{ k.category }}</template>
+            {{ k.label || k.keyword }}<template v-if="k.category"> · {{ k.category }}</template>
           </span>
         </div>
       </div>

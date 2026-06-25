@@ -108,7 +108,9 @@ SIMPLE_JWT = {
 # --- 외부 API 키 (backend/.env 에서 로드) ---
 KAKAO_REST_API_KEY = os.environ.get("KAKAO_REST_API_KEY", "")  # 카카오모빌리티 길찾기
 HIRA_SERVICE_KEY = os.environ.get("HIRA_SERVICE_KEY", "")      # 심평원 병원정보 (import_hira)
-HIRA_DISEASE_SERVICE_KEY = os.environ.get("HIRA_DISEASE_SERVICE_KEY", "")  # 심평원 질병정보 (import_disease)
+# 심평원 질병정보 (import_disease). data.go.kr은 계정당 인증키가 공유라,
+# 별도 지정이 없으면 병원정보용 HIRA_SERVICE_KEY를 그대로 재사용한다.
+HIRA_DISEASE_SERVICE_KEY = os.environ.get("HIRA_DISEASE_SERVICE_KEY", "") or HIRA_SERVICE_KEY
 EGEN_SERVICE_KEY = os.environ.get("EGEN_SERVICE_KEY", "")      # E-Gen 응급의료기관 (import_emergency)
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")    # 키워드 후보 생성(generate_keywords) + 런타임 진료과 추론 폴백
 # 런타임 진료과 추론 폴백(services.classify_symptom_with_ai)에 쓰는 모델.

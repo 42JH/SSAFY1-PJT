@@ -16,13 +16,38 @@
 ### 오늘 할 일 (2026-06-23)
 - 스크럼 회의에서 아래 이슈 3건 논의 — 각 기능을 이번 범위에 넣을지 / 미룰지 방향만 결정 (구현은 결정 후 별도 배정)
 - README·DEMO 문서 현행화 (완료) — 코드 실제 상태와 대조해 API 명세·기술 스택·핵심 로직 갱신
-- 데모 시나리오 5단계 리허설 점검 (DEMO.md 기준)
+- 데모 시나리오 5단계 리허설 점검 (PRESENTATION.md §2 기준)
 
 ### 이슈 / 블로커
 - 회원 기능 범위: 아이디·비밀번호 수정 기능을 만들 것인가? 비밀번호 찾기 기능은? → 범위·우선순위 결정 필요
 - PC 환경 위치 정확도: GPS가 wifi 기반이라 ±25km 오차 발생 → 어떻게 해결할 것인가 (수동 위치 설정·프리셋으로 보정 중, 보강 여부 결정)
 - 시연 환경: 위 위치 오차 문제를 피하기 위해 모바일에서 시연을 진행할지 여부 결정
 - 진료시간 미신고 기관 기본값(09~18시) 처리 — "방문 전 전화 확인" 고지로 대응 중
+
+---
+
+## 1-b. 데일리 스크럼 (2026-06-25) — AI 활용 보강
+
+### 한 일
+- **질병정보 API 연동 완료**: 심평원 질병정보서비스(B551182) → 양방 KCD 질병 2,065건 적재(`import_disease`)
+- **AI 데이터 전처리**: Claude(haiku)로 질병→구어체 증상표현+진료과 전처리(173배치) → 자동 필터 → 검수 후보 5,177개(`disease_to_keywords`)
+- **사람 검수(HITL)**: 가중치 기준 큐레이션 → 채택 4,693 → 사전 **5,253개**로 확장
+- **품질 감사**: 사전 전수 교차매칭 구조 스캔 → generic 키워드 오염 버그 수정(분비물→산부인과 등), 정확성 우선 라벨 정책
+- **응급 키워드 표시 라벨** 추가(migration 0011): 어간 매칭 유지, 화면은 표준 증상명("쓰러짐"·"토혈")
+- **문서 정리**: MD 8개 → 4개 통합(README / SCRUM / PRESENTATION / TROUBLESHOOTING)
+
+### 해결한 블로커 (상세: `TROUBLESHOOTING.md`)
+- 질병 API resultCode 99 = 서버 장애 오진단 → 실제론 필수 파라미터(sickType/medTp) 누락
+- `tee` 권한오류로 백그라운드 작업 사망 → tee 없이 재실행
+- LLM 생성물 그대로 신뢰하지 않고 전수 감사로 교차오염 검출
+
+### 선행 작업 (Day1~2, AI 활용 보강)
+- Day1: 런타임 AI 폴백(`classify_symptom_with_ai`, 규칙 0건→Claude 진료과 추론, 응답에 `source` 추가, SymptomLog.source)
+- Day2: "학습"→"피드백 보정" 전면 리네이밍(과장 제거), 적중률 평가(`eval_recommend`, Top-1 80%/Top-3 90%), 사용 지표 집계(`metrics`, AI 구제 건수·만족도)
+
+### 산출물
+- 신규 커맨드: `import_disease`, `disease_to_keywords`, `approve_keywords`(검수 보조), `eval_recommend`, `keyword_stats`, `metrics`
+- 근거 문서: `PRESENTATION.md` §4(AI 전처리 퍼널·규모)·§5(적중률) — `KEYWORD_STATS`·`EVAL_RESULT`·`DEMO`·`DEPLOY`·`AI_HANDOFF`는 4개 문서로 통합·이관
 
 ---
 
@@ -37,8 +62,8 @@
 - 사용자 추천 평가(👍/👎) 피드백 보정 가산 (±5 클램프, KeywordFeedback — ML 학습 아님)
 - 규칙 매칭 0건 시 런타임 Claude 진료과 추론 폴백(근거 포함, 응급 의심 시 119 2차 분기), AI까지 실패 시 내과 우선 폴백
 - 어간 키워드 매칭(예: "쓰러지" → 활용형 전체 대응)
-- 증상 라벨링 — 구어체 토큰을 표시용 증상명(label)으로 노출 (06-22)
-- 키워드 사전 511개
+- 증상 라벨링 — 구어체 토큰을 표시용 증상명(label)으로 노출 (06-22). 응급 키워드에도 표시용 라벨 추가 (06-25)
+- 키워드 사전 5,253개 — 기본 510 + AI 전처리(심평원 질병정보 API 2,065건 → Claude 전처리 → HITL 검수) 채택 4,743. 교차매칭 품질 감사 완료 (06-25, 근거: `PRESENTATION.md` §4)
 - 관련 파일: backend/api/services.py, keyword_dictionary.py, views.py
 
 ### 2.2 응급 강제 분기  [완료]
@@ -96,7 +121,7 @@
 - Frontend: Vue 3 (Composition API) + Pinia + Vue Router
 - 지도: 카카오맵 JS SDK + 카카오모빌리티 길찾기 REST API
 - 외부 데이터: 심평원 병원정보·상세정보 서비스, E-Gen 응급실
-- 데모 시나리오: DEMO.md / API 명세: README.md
+- 발표·데모 시나리오: PRESENTATION.md / API 명세: README.md / 트러블슈팅: TROUBLESHOOTING.md
 
 ---
 

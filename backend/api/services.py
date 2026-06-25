@@ -71,7 +71,12 @@ def check_emergency(symptom_text: str):
     matched = []
     for ek in EmergencyKeyword.objects.all():
         if normalize(ek.keyword) in norm:
-            matched.append({"keyword": ek.keyword, "category": ek.category})
+            # 화면에는 어간(keyword)이 아니라 표준 증상명(label)을 노출.
+            matched.append({
+                "keyword": ek.keyword,
+                "label": ek.display_name,
+                "category": ek.category,
+            })
     return matched or None
 
 
