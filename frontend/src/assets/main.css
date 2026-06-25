@@ -44,7 +44,7 @@ body {
 /* 모바일 앱 프레임 */
 .app-frame {
   width: 100%;
-  max-width: 440px;
+  max-width: 480px;
   min-height: 100vh;
   background: var(--bg);
   display: flex;
@@ -106,6 +106,15 @@ body {
     margin-top: 26px;
     font-size: 12px;
     color: #9aa3b5;
+  }
+  /* 데스크톱에서는 프레임을 넓혀 메인 화면이 좁아 보이지 않게.
+     하한 540px(작은 노트북에서 브랜드 패널과 겹치지 않게) ~ 상한 780px,
+     그 사이는 모니터 폭에 비례해 커짐 */
+  .app-frame {
+    max-width: clamp(520px, 48vw, 620px);
+  }
+  .app-frame .page {
+    padding: 32px;
   }
   /* 분할 뷰 라우트(병원 리스트)에서는 프레임을 넓힘 */
   .app-frame.wide {

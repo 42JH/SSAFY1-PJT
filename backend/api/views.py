@@ -21,10 +21,9 @@ from .serializers import (
 from .services import (
     bayesian_rating,
     check_emergency,
-    classify_symptom_with_ai,
     find_emergency_centers,
     find_hospitals,
-    recommend_departments,
+    recommend_with_ai,
 )
 
 EMERGENCY_MESSAGE = "응급 상황일 수 있습니다. 즉시 119에 연락하세요."
@@ -56,32 +55,17 @@ def recommend(request):
             "message": EMERGENCY_MESSAGE,
         })
 
-    # ③~⑤ 사전 매칭(규칙) → 점수 합산 → 랭킹
-    results = recommend_departments(symptom_text)
-    source = "rule"
-
-    # ⑥ 규칙 매칭 0건 → AI 진료과 추론으로 구제 (사전에 없는 구어체·비정형 표현 대응).
-    # 일반 케이스는 여기까지 오지 않으므로 LLM 비용·지연이 통제된다.
-    if not results:
-        ai = classify_symptom_with_ai(symptom_text)
-        if ai and ai.get("is_emergency"):
-            # AI 2차 안전망: 규칙 응급사전이 놓친 응급 징후 감지 → 119 분기
-            return Response({
-                "emergency": True,
-                "matched_keywords": [],
-                "message": EMERGENCY_MESSAGE,
-                "source": "ai",
-            })
-        if ai:
-            source = "ai"
-            results = [{
-                "department_id": ai["department_id"],
-                "department": ai["department"],
-                "score": None,                 # 규칙 점수가 아닌 AI 추론 → 점수 없음
-                "matched_keywords": [],
-                "ai_reason": ai["reason"],
-                "confidence": ai["confidence"],
-            }]
+    # ③~⑥ 규칙 우선 + 불확실(0건·약한 매칭) 시 AI 위임(confidence-gated).
+    # 강한 규칙 매칭은 즉시·무료·결정적 처리, 나머지 롱테일만 AI가 1~3순위로 보강한다.
+    results, source = recommend_with_ai(symptom_text)
+    if source == "ai_emergency":
+        # AI 2차 안전망: 규칙 응급사전이 놓친 응급 징후 감지 → 119 분기
+        return Response({
+            "emergency": True,
+            "matched_keywords": [],
+            "message": EMERGENCY_MESSAGE,
+            "source": "ai",
+        })
 
     # F09 건강 로그: 로그인 사용자의 검색 이력 저장 (게스트는 저장 안 함)
     if request.user.is_authenticated:

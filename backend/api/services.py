@@ -189,22 +189,23 @@ def classify_symptom_with_ai(symptom_text: str, model: str = None):
     )
 
     class AIClassification(BaseModel):
-        department: str   # 반드시 아래 목록에 있는 진료과명
-        reason: str       # 환자가 이해할 한국어 한 문장 근거
+        departments: list[str]  # 적합도 높은 순으로 1~3개, 반드시 아래 목록의 진료과명
+        reason: str             # 환자가 이해할 한국어 한 문장 근거 (1순위 기준)
         is_emergency: bool
-        confidence: float  # 0~1
+        confidence: float       # 0~1 (1순위 확신도)
 
     system = (
         "너는 한국 1차 의료 진료과 안내 도우미다. 환자의 증상 설명을 읽고 주어진 진료과 "
-        "목록 중 가장 적합한 단 하나를 고른다. 반드시 목록에 있는 진료과명을 그대로 써라"
-        "(새 이름을 만들지 마라). 생명을 위협하는 응급 징후(의식소실·심한 호흡곤란·가슴을 "
-        "쥐어짜는 통증·대량 출혈·갑작스러운 마비 등)가 의심되면 is_emergency=true로 표시하라. "
-        "reason은 왜 그 진료과인지 환자가 이해할 한국어 한 문장으로 적어라."
+        "목록 중 가장 적합한 진료과를 적합도가 높은 순서대로 최대 3개 고른다. 반드시 목록에 "
+        "있는 진료과명을 그대로 써라(새 이름을 만들지 마라). 애매하면 가능성 있는 과를 순서대로 "
+        "함께 제시하라. 생명을 위협하는 응급 징후(의식소실·심한 호흡곤란·가슴을 쥐어짜는 통증·"
+        "대량 출혈·갑작스러운 마비 등)가 의심되면 is_emergency=true로 표시하라. reason은 왜 "
+        "1순위 진료과인지 환자가 이해할 한국어 한 문장으로 적어라."
     )
     prompt = (
         f"증상 설명: {symptom_text}\n\n"
         f"진료과 목록:\n{dept_lines}\n\n"
-        "위 목록에서 가장 적합한 진료과 하나를 선택하라."
+        "위 목록에서 가장 적합한 진료과를 적합도 높은 순으로 최대 3개 선택하라."
     )
     try:
         client = anthropic.Anthropic(api_key=api_key, timeout=8.0)
@@ -221,16 +222,66 @@ def classify_symptom_with_ai(symptom_text: str, model: str = None):
     out = resp.parsed_output
     if out.is_emergency:
         return {"is_emergency": True}
-    dept = dept_by_name.get(out.department.strip())
-    if dept is None:
-        return None  # 목록 밖 진료과(환각) → 폐기
+    # 목록 밖 진료과(환각) 제거 + 중복 제거, 적합도 순으로 최대 3개
+    ranked, seen = [], set()
+    for name in out.departments:
+        d = dept_by_name.get((name or "").strip())
+        if d and d.id not in seen:
+            seen.add(d.id)
+            ranked.append({"department_id": d.id, "department": d.name})
+    if not ranked:
+        return None  # 유효 진료과 0건(전부 환각) → 폐기
     return {
         "is_emergency": False,
-        "department_id": dept.id,
-        "department": dept.name,
+        "ranked": ranked[:3],
+        "department_id": ranked[0]["department_id"],  # 하위호환: 1순위
+        "department": ranked[0]["department"],
         "reason": out.reason.strip(),
         "confidence": round(max(0.0, min(1.0, out.confidence)), 2),
     }
+
+
+# ── 규칙 + AI 하이브리드: confidence-gated 위임 ──────────────────
+#
+# 규칙 매칭이 '확신'할 때(대표 키워드 매칭 등 점수 충분)는 즉시·무료·결정적으로 처리하고,
+# 규칙이 0건이거나 '약할 때'(generic 단일 매칭 등)만 AI에 위임한다. 이렇게 하면 흔한 케이스의
+# 비용·지연은 통제하면서, 규칙이 못 잡거나 약하게 잡는 롱테일 정확도는 AI가 끌어올린다.
+MIN_CONFIDENT_SCORE = 3  # 규칙 1순위 점수가 이 미만이면 '약함'으로 보고 AI 위임
+
+
+def recommend_with_ai(symptom_text: str, top_n: int = 3):
+    """규칙 우선 + 불확실 시 AI 위임. 반환 (results, source).
+
+    source: 'rule'(규칙 확신) | 'ai'(AI 위임/구제) | 'ai_emergency'(AI 응급 분기) |
+            'fallback'(규칙·AI 모두 실패 → 빈 리스트, 호출부가 내과 안내)
+    응급 1차 검사(check_emergency)는 호출부(뷰)에서 먼저 수행한다.
+    """
+    rules = recommend_departments(symptom_text, top_n=top_n)
+    max_score = rules[0]["score"] if rules else 0
+    if rules and max_score >= MIN_CONFIDENT_SCORE:
+        return rules, "rule"
+
+    ai = classify_symptom_with_ai(symptom_text)
+    if ai is None:
+        # AI 실패 → 약한 규칙이라도 있으면 사용, 없으면 빈 리스트(폴백)
+        return (rules, "rule") if rules else ([], "fallback")
+    if ai.get("is_emergency"):
+        return [], "ai_emergency"
+
+    # AI 순위를 우선 배치(약한 규칙보다 신뢰), 규칙에만 있던 과를 뒤에 보강해 top_n
+    results = [{
+        "department_id": r["department_id"],
+        "department": r["department"],
+        "score": None,
+        "matched_keywords": [],
+        "ai_reason": ai["reason"],
+        "confidence": ai["confidence"],
+    } for r in ai["ranked"]]
+    seen = {r["department_id"] for r in results}
+    for r in rules:
+        if r["department_id"] not in seen:
+            results.append(r)
+    return results[:top_n], "ai"
 
 
 # ── 병원 추천: Haversine 거리 · 영업상태 · 반경 확장 · 평점 보정 ──

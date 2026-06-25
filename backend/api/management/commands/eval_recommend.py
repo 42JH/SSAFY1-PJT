@@ -19,7 +19,7 @@ from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
 
-from api.services import classify_symptom_with_ai, recommend_departments
+from api.services import recommend_departments, recommend_with_ai
 
 DEFAULT_CSV = Path(__file__).resolve().parent.parent.parent / "data" / "eval_symptoms.csv"
 
@@ -50,37 +50,32 @@ class Command(BaseCommand):
 
         total = len(cases)
         top1 = top3 = covered = 0
-        ai_eligible = ai_hit = 0
+        rule_handled = ai_handled = 0
         misses = []  # (text, expected, got_top3, via)
 
         for text, expected in cases:
-            results = recommend_departments(text)
-            if results:
-                covered += 1
-                names = [r["department"] for r in results]
-                is_top1 = names[0] == expected
-                is_top3 = expected in names[:3]
-                if is_top1:
-                    top1 += 1
-                if is_top3:
-                    top3 += 1
+            # --with-ai: 배포 하이브리드(recommend_with_ai) = 규칙 우선 + 약하면 AI 위임(top-3)
+            # 미지정: 규칙 엔진만(recommend_departments)
+            if opts["with_ai"]:
+                results, source = recommend_with_ai(text)
+                if source == "rule":
+                    rule_handled += 1
                 else:
-                    misses.append((text, expected, names[:3], "규칙"))
+                    ai_handled += 1  # ai / ai_emergency / fallback
             else:
-                # 규칙 0건 → 폴백. --with-ai면 AI 추론으로 구제 가능한지 평가
-                if opts["with_ai"]:
-                    ai_eligible += 1
-                    ai = classify_symptom_with_ai(text)
-                    got = (ai or {}).get("department")
-                    if ai and got == expected:
-                        ai_hit += 1
-                        top1 += 1
-                        top3 += 1
-                    else:
-                        label = "AI:응급분기" if (ai or {}).get("is_emergency") else f"AI:{got or '실패'}"
-                        misses.append((text, expected, [label], "AI"))
-                else:
-                    misses.append((text, expected, ["(폴백)"], "규칙0건"))
+                results = recommend_departments(text)
+                source = "규칙" if results else "규칙0건"
+                if results:
+                    covered += 1
+
+            names = [r["department"] for r in results]
+            if names and names[0] == expected:
+                top1 += 1
+            if expected in names[:3]:
+                top3 += 1
+            else:
+                via = ("AI" if source not in ("rule", "규칙") else "규칙")
+                misses.append((text, expected, names[:3] or ["(폴백)"], via))
 
         pct = lambda n: f"{n / total * 100:.1f}%"
         md = opts["md"]
@@ -89,15 +84,15 @@ class Command(BaseCommand):
 
         out(f"# 추천 정확도 평가 ({total}케이스)\n" if md
             else f"\n########## 추천 정확도 평가 ({total}케이스) ##########")
-        out(H("종합 적중률 (규칙 + AI 폴백)" if opts["with_ai"] else "규칙 엔진 적중률"))
+        out(H("종합 적중률 (규칙 + AI 하이브리드)" if opts["with_ai"] else "규칙 엔진 적중률"))
         rows = [
             ("Top-1 적중", f"{top1}/{total}", pct(top1)),
-            ("Top-3 적중", f"{top3}/{total}", pct(top3)),
-            ("규칙 커버리지(폴백 아님)", f"{covered}/{total}", pct(covered)),
+            ("Top-3 적중(1~3순위)", f"{top3}/{total}", pct(top3)),
         ]
         if opts["with_ai"]:
-            ai_rate = f"{ai_hit}/{ai_eligible} ({ai_hit / ai_eligible * 100:.1f}%)" if ai_eligible else "—"
-            rows.append(("AI 구제 적중(규칙 0건 중)", ai_rate, ""))
+            rows.append(("처리 분담(규칙/AI)", f"{rule_handled} / {ai_handled}", f"AI {ai_handled / total * 100:.1f}%"))
+        else:
+            rows.append(("규칙 커버리지(폴백 아님)", f"{covered}/{total}", pct(covered)))
         if md:
             out("| 지표 | 건수 | 비율 |")
             out("|---|---|---|")
